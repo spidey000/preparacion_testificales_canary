@@ -1,11 +1,12 @@
-import { AlertTriangle, Download, FileJson2, FileText, MessageSquare, Plus, Save, Target, Upload, Users } from 'lucide-react';
+import { AlertTriangle, Download, FileJson2, FileText, History, MessageSquare, Plus, Save, Target, Upload, Users } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import FlowCanvas from './components/FlowCanvas';
 import EdgeModal from './components/EdgeModal';
 import ImportDbReferenceModal from './components/ImportDbReferenceModal';
 import EliminarModal from './components/EliminarModal';
+import FlowHistoryModal from './components/FlowHistoryModal';
 import NodeModal from './components/NodeModal';
-import { db } from './db';
+import { listFlowsByUpdatedAt } from './flowRepository';
 import { buildDbFileName, parseImportedDbFile, serializeDbExport } from './importExport';
 import SidebarPanel from './components/SidebarPanel';
 import { useStore } from './store';
@@ -50,6 +51,7 @@ export default function App() {
   const didInit = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isReferenceOpen, setIsReferenceOpen] = useState(false);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
 
   useEffect(() => {
     if (didInit.current) return;
@@ -59,11 +61,12 @@ export default function App() {
 
   useEffect(() => {
     if (!flujoActualId) return;
+    if (saveState === 'saved') return;
     const timeout = window.setTimeout(() => {
       void guardarFlujo();
     }, 500);
     return () => window.clearTimeout(timeout);
-  }, [flujoActualId, nodes, edges, testigos, hechos, documentos, guardarFlujo]);
+  }, [flujoActualId, nodes, edges, testigos, hechos, documentos, saveState, guardarFlujo]);
 
   const flujoActual = useMemo(() => flujos.find((item) => item.id === flujoActualId) ?? null, [flujos, flujoActualId]);
 
@@ -76,7 +79,7 @@ export default function App() {
   ];
 
   async function handleExportDb() {
-    const flujosParaExportar = await db.flujos.orderBy('updatedAt').reverse().toArray();
+    const flujosParaExportar = await listFlowsByUpdatedAt();
     const content = serializeDbExport(flujosParaExportar);
     const blob = new Blob([content], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -98,7 +101,7 @@ export default function App() {
       const count = await importarFlujos(imported);
       window.alert(`Importacion completada. Se crearon ${count} flujo(s) nuevo(s) sin tocar el flujo actual.`);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'No se pudo importar el archivo .db.';
+      const message = error instanceof Error ? error.message : 'No se pudo importar el archivo JSON.';
       window.alert(message);
     }
   }
@@ -146,17 +149,17 @@ export default function App() {
             </button>
 
             <button onClick={() => fileInputRef.current?.click()} className="inline-flex items-center gap-2 rounded-2xl bg-zinc-800 px-4 py-3 text-sm transition hover:bg-zinc-700">
-              <Upload size={18} /> Importar .db
+              <Upload size={18} /> Importar JSON
             </button>
 
             <button onClick={() => void handleExportDb()} className="inline-flex items-center gap-2 rounded-2xl bg-zinc-800 px-4 py-3 text-sm transition hover:bg-zinc-700">
-              <Download size={18} /> Exportar .db
+              <Download size={18} /> Exportar JSON
             </button>
 
             <input
               ref={fileInputRef}
               type="file"
-              accept=".db,application/json"
+              accept=".json,application/json,text/json"
               onChange={(event) => void handleImportDb(event)}
               className="hidden"
             />
@@ -175,6 +178,9 @@ export default function App() {
                 </button>
                 <button onClick={() => void setMode(flujoActual.mode === 'preparacion' ? 'audiencia' : 'preparacion')} className="rounded-full bg-zinc-900 px-3 py-1 transition hover:bg-zinc-800">
                   Modo {flujoActual.mode}
+                </button>
+                <button onClick={() => setIsHistoryOpen(true)} className="inline-flex items-center gap-2 rounded-full bg-zinc-900 px-3 py-1 transition hover:bg-zinc-800">
+                  <History size={14} /> Historial
                 </button>
                 <button onClick={() => {
                   if (!window.confirm(`Eliminar "${flujoActual.titulo}"?`)) return;
@@ -205,6 +211,12 @@ export default function App() {
       <NodeModal />
       <EdgeModal />
       <ImportDbReferenceModal isOpen={isReferenceOpen} onClose={() => setIsReferenceOpen(false)} />
+      <FlowHistoryModal
+        isOpen={isHistoryOpen}
+        onClose={() => setIsHistoryOpen(false)}
+        flowId={flujoActualId}
+        flowTitle={flujoActual?.titulo}
+      />
       <EliminarModal />
     </div>
   );

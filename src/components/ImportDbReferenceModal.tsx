@@ -29,7 +29,7 @@ export default function ImportDbReferenceModal({ isOpen, onClose }: { isOpen: bo
         <div className="flex items-start justify-between gap-4 border-b border-zinc-800 px-6 py-5">
           <div>
             <div className="text-xs uppercase tracking-[0.25em] text-zinc-500">Referencia de importacion</div>
-            <h2 className="text-xl font-semibold text-zinc-100">Formato .db para generar desde una IA</h2>
+            <h2 className="text-xl font-semibold text-zinc-100">Formato JSON para generar desde una IA</h2>
             <p className="mt-2 max-w-4xl text-sm text-zinc-400">
               Este texto esta preparado para pegarse directamente en una IA junto con unas notas o texto plano sobre testigos, hechos y preguntas. La IA debe devolver un archivo JSON importable por Testificales.
             </p>

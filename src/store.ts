@@ -1,10 +1,10 @@
 import { addEdge, applyEdgeChanges, applyNodeChanges, type Connection, type EdgeChange, type NodeChange } from '@xyflow/react';
 import { create } from 'zustand';
-import { db } from './db';
 import { getDocumentLabel } from './documentUtils';
 import { decorateEdge, getEdgeKindLabel, inferEdgeKind } from './edgeRules';
+import { deleteFlowById, getFlowById, getFlowSnapshot, listFlowSummariesByUpdatedAt, saveFlow, saveFlows } from './flowRepository';
 import { cloneImportedFlowsAsNew } from './importExport';
-import type { CustomEdge, CustomEdgeData, CustomNode, CustomNodeData, Documento, Flujo, Hecho, NodeKind, SessionMode, Testigo } from './types';
+import type { CustomEdge, CustomEdgeData, CustomNode, CustomNodeData, Documento, FlowSummary, Flujo, Hecho, NodeKind, SessionMode, Testigo } from './types';
 
 type SaveState = 'idle' | 'saving' | 'saved';
 
@@ -61,7 +61,7 @@ const defaultNodeData = (type: NodeKind): CustomNodeData => {
 };
 
 interface Store {
-  flujos: Flujo[];
+  flujos: FlowSummary[];
   flujoActualId: string | null;
   nodes: CustomNode[];
   edges: CustomEdge[];
@@ -103,6 +103,7 @@ interface Store {
   setDeleteConfirm: (value: { type: 'testigo' | 'hecho' | 'documento'; id: string; label: string } | null) => void;
   setMode: (mode: SessionMode) => Promise<void>;
   importarFlujos: (flujos: Flujo[]) => Promise<number>;
+  restaurarSnapshot: (snapshotId: string) => Promise<boolean>;
 }
 
 function normalizeEdges(edges: CustomEdge[] | undefined, nodes: CustomNode[]): CustomEdge[] {
@@ -147,8 +148,8 @@ export const useStore = create<Store>((set, get) => ({
   deleteConfirm: null,
 
   loadFlujos: async () => {
-    const flujos = await db.flujos.orderBy('updatedAt').reverse().toArray();
-    const actual = flujos[0] ?? null;
+    const flujos = await listFlowSummariesByUpdatedAt();
+    const actual = flujos[0] ? await getFlowById(flujos[0].id) : null;
     set({
       flujos,
       flujoActualId: actual?.id ?? null,
@@ -162,13 +163,13 @@ export const useStore = create<Store>((set, get) => ({
     });
   },
 
-  crearFlujo: async (titulo = 'Nuevo flujo') => {
-    const flow = createBaseFlow(titulo);
-    await db.flujos.add(flow);
-    const flujos = await db.flujos.orderBy('updatedAt').reverse().toArray();
-    set({
-      flujos,
-      flujoActualId: flow.id,
+    crearFlujo: async (titulo = 'Nuevo flujo') => {
+      const flow = createBaseFlow(titulo);
+      await saveFlow(flow);
+      const flujos = await listFlowSummariesByUpdatedAt();
+      set({
+        flujos,
+        flujoActualId: flow.id,
       nodes: [],
       edges: [],
       testigos: [],
@@ -181,9 +182,9 @@ export const useStore = create<Store>((set, get) => ({
   },
 
   eliminarFlujo: async (id) => {
-    await db.flujos.delete(id);
-    const flujos = await db.flujos.orderBy('updatedAt').reverse().toArray();
-    const actual = flujos[0] ?? null;
+    await deleteFlowById(id);
+    const flujos = await listFlowSummariesByUpdatedAt();
+    const actual = flujos[0] ? await getFlowById(flujos[0].id) : null;
     set({
       flujos,
       flujoActualId: actual?.id ?? null,
@@ -199,7 +200,7 @@ export const useStore = create<Store>((set, get) => ({
   },
 
   seleccionarFlujo: async (id) => {
-    const flujo = await db.flujos.get(id);
+    const flujo = await getFlowById(id);
     if (!flujo) return;
     set({
       flujoActualId: flujo.id,
@@ -217,18 +218,18 @@ export const useStore = create<Store>((set, get) => ({
   renombrarFlujo: async (titulo) => {
     const { flujoActualId } = get();
     if (!flujoActualId) return;
-    const flujo = await db.flujos.get(flujoActualId);
+    const flujo = await getFlowById(flujoActualId);
     if (!flujo) return;
     const updated = { ...flujo, titulo, updatedAt: new Date().toISOString() };
-    await db.flujos.put(updated);
-    const flujos = await db.flujos.orderBy('updatedAt').reverse().toArray();
+    await saveFlow(updated);
+    const flujos = await listFlowSummariesByUpdatedAt();
     set({ flujos, saveState: 'saved' });
   },
 
   guardarFlujo: async () => {
-    const { flujoActualId, nodes, edges, testigos, hechos, documentos, flujos } = get();
+    const { flujoActualId, nodes, edges, testigos, hechos, documentos } = get();
     if (!flujoActualId) return;
-    const current = flujos.find((item) => item.id === flujoActualId) ?? (await db.flujos.get(flujoActualId));
+    const current = await getFlowById(flujoActualId);
     if (!current) return;
     set({ saveState: 'saving' });
     const updated: Flujo = {
@@ -240,8 +241,8 @@ export const useStore = create<Store>((set, get) => ({
       documentos,
       updatedAt: new Date().toISOString(),
     };
-    await db.flujos.put(updated);
-    const nextFlows = await db.flujos.orderBy('updatedAt').reverse().toArray();
+    await saveFlow(updated);
+    const nextFlows = await listFlowSummariesByUpdatedAt();
     set({ flujos: nextFlows, saveState: 'saved' });
   },
 
@@ -479,13 +480,13 @@ export const useStore = create<Store>((set, get) => ({
   },
 
   setMode: async (mode) => {
-    const { flujoActualId, flujos } = get();
+    const { flujoActualId } = get();
     if (!flujoActualId) return;
-    const current = flujos.find((item) => item.id === flujoActualId) ?? (await db.flujos.get(flujoActualId));
+    const current = await getFlowById(flujoActualId);
     if (!current) return;
     const updated = { ...current, mode, updatedAt: new Date().toISOString() };
-    await db.flujos.put(updated);
-    const nextFlows = await db.flujos.orderBy('updatedAt').reverse().toArray();
+    await saveFlow(updated);
+    const nextFlows = await listFlowSummariesByUpdatedAt();
     set({ flujos: nextFlows, saveState: 'saved' });
   },
 
@@ -495,11 +496,11 @@ export const useStore = create<Store>((set, get) => ({
     const imported = cloneImportedFlowsAsNew(flujos);
     if (imported.length === 0) return 0;
 
-    await db.flujos.bulkPut(imported);
+    await saveFlows(imported);
 
     const { flujoActualId, selectedNodeId, selectedEdgeId, saveState } = get();
-    const nextFlows = await db.flujos.orderBy('updatedAt').reverse().toArray();
-    const current = flujoActualId ? nextFlows.find((item) => item.id === flujoActualId) ?? null : null;
+    const nextFlows = await listFlowSummariesByUpdatedAt();
+    const current = flujoActualId ? await getFlowById(flujoActualId) : null;
 
     set((state) => ({
       flujos: nextFlows,
@@ -515,5 +516,33 @@ export const useStore = create<Store>((set, get) => ({
     }));
 
     return imported.length;
+  },
+
+  restaurarSnapshot: async (snapshotId) => {
+    const snapshot = await getFlowSnapshot(snapshotId);
+    if (!snapshot) return false;
+
+    const restored: Flujo = {
+      ...snapshot,
+      updatedAt: new Date().toISOString(),
+    };
+
+    await saveFlow(restored);
+    const nextFlows = await listFlowSummariesByUpdatedAt();
+
+    set({
+      flujos: nextFlows,
+      flujoActualId: restored.id,
+      nodes: restored.nodes,
+      edges: normalizeEdges(restored.edges, restored.nodes),
+      testigos: restored.testigos,
+      hechos: restored.hechos,
+      documentos: restored.documentos ?? [],
+      selectedNodeId: null,
+      selectedEdgeId: null,
+      saveState: 'saved',
+    });
+
+    return true;
   },
 }));

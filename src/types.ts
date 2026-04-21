@@ -104,3 +104,20 @@ export interface Flujo {
   createdAt: string;
   updatedAt: string;
 }
+
+export interface FlowSummary {
+  id: string;
+  titulo: string;
+  mode: SessionMode;
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+  lastSnapshotAt?: string;
+}
+
+export interface FlowSnapshotSummary {
+  id: string;
+  flowId: string;
+  createdAt: string;
+  snapshotVersion: number;
+}
