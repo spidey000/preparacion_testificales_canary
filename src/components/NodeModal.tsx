@@ -1,7 +1,15 @@
 import { X } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { getDocumentLabel, sortDocumentsByName } from '../documentUtils';
 import { useStore } from '../store';
 import type { Cobertura, Priority, QuestionStyle, RiskLevel } from '../types';
+
+const PART_LABELS: Record<string, string> = {
+  actora: 'Actora',
+  demandada: 'Demandada',
+  ambas: 'Ambas',
+  tercero: 'Tercero',
+};
 
 function FieldLabel({ children }: { children: string }) {
   return <label className="mb-2 block text-xs uppercase tracking-wide text-zinc-400">{children}</label>;
@@ -20,9 +28,10 @@ function Select(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
 }
 
 export default function NodeModal() {
-  const { selectedNodeId, nodes, updateNode, eliminarNodo, setSelectedNode, testigos, hechos } = useStore();
+  const { selectedNodeId, nodes, updateNode, eliminarNodo, setSelectedNode, testigos, hechos, documentos, setDeleteConfirm } = useStore();
   const node = nodes.find((item) => item.id === selectedNodeId);
   const [formData, setFormData] = useState(node?.data);
+  const documentosOrdenados = sortDocumentsByName(documentos);
 
   useEffect(() => {
     setFormData(node?.data);
@@ -32,7 +41,7 @@ export default function NodeModal() {
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4">
-      <div className="max-h-[85vh] w-full max-w-3xl overflow-hidden rounded-[2rem] border border-zinc-800 bg-zinc-900 shadow-2xl">
+      <div className="flex max-h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-[2rem] border border-zinc-800 bg-zinc-900 shadow-2xl">
         <div className="flex items-center justify-between border-b border-zinc-800 px-6 py-5">
           <div>
             <div className="text-xs uppercase tracking-[0.25em] text-zinc-500">Editor de nodo</div>
@@ -43,7 +52,7 @@ export default function NodeModal() {
           </button>
         </div>
 
-        <div className="grid max-h-[calc(85vh-88px)] gap-6 overflow-auto p-6 md:grid-cols-2">
+        <div className="grid min-h-0 flex-1 gap-6 overflow-y-auto p-6 md:grid-cols-2">
           <div className="md:col-span-2">
             <FieldLabel>Etiqueta</FieldLabel>
             <Input value={formData.label ?? ''} onChange={(e) => setFormData({ ...formData, label: e.target.value })} />
@@ -140,8 +149,56 @@ export default function NodeModal() {
           {node.data.type === 'documento' ? (
             <>
               <div>
-                <FieldLabel>Fuente</FieldLabel>
-                <Input value={formData.source ?? ''} onChange={(e) => setFormData({ ...formData, source: e.target.value })} />
+                <FieldLabel>Documento de referencia</FieldLabel>
+                <Select
+                  value={formData.documentId ?? ''}
+                  onChange={(e) => {
+                    const documentId = e.target.value || undefined;
+                    const documento = documentos.find((item) => item.id === documentId);
+
+                    if (!documento) {
+                      setFormData({
+                        ...formData,
+                        documentId: undefined,
+                      });
+                      return;
+                    }
+
+                    setFormData({
+                      ...formData,
+                      documentId: documento.id,
+                      label: getDocumentLabel(documento),
+                      description: documento.descripcion ?? '',
+                      source: documento.referencia ?? '',
+                      notes: documento.notas ?? '',
+                      documentPart: documento.parte,
+                      documentType: documento.tipo ?? '',
+                      documentDate: documento.fecha ?? '',
+                      documentReference: documento.referencia ?? '',
+                    });
+                  }}
+                >
+                  <option value="">Sin vincular</option>
+                  {documentosOrdenados.map((documento) => (
+                    <option key={documento.id} value={documento.id}>{getDocumentLabel(documento)}</option>
+                  ))}
+                </Select>
+              </div>
+              <div>
+                <FieldLabel>Referencia</FieldLabel>
+                <Input value={formData.source ?? ''} onChange={(e) => setFormData({ ...formData, source: e.target.value, documentReference: e.target.value })} />
+              </div>
+              <div>
+                <FieldLabel>Parte</FieldLabel>
+                <Input value={formData.documentPart ? PART_LABELS[formData.documentPart] ?? formData.documentPart : ''} readOnly />
+              </div>
+              <div>
+                <FieldLabel>Tipo</FieldLabel>
+                <Input value={formData.documentType ?? ''} onChange={(e) => setFormData({ ...formData, documentType: e.target.value })} />
+              </div>
+              <div>
+                <FieldLabel>Fecha</FieldLabel>
+                <Input value={formData.documentDate ?? ''} onChange={(e) => setFormData({ ...formData, documentDate: e.target.value })} />
               </div>
               <div className="md:col-span-2">
                 <FieldLabel>Descripcion</FieldLabel>
@@ -168,13 +225,13 @@ export default function NodeModal() {
           </div>
         </div>
 
-        <div className="flex justify-end gap-3 border-t border-zinc-800 px-6 py-5">
+        <div className="flex shrink-0 justify-end gap-3 border-t border-zinc-800 bg-zinc-900 px-6 py-5">
           <button
             onClick={() => {
-              const confirmed = window.confirm('Se eliminara el nodo y todas sus conexiones asociadas. Esta accion no se puede deshacer.');
-              if (!confirmed) return;
-              eliminarNodo(node.id);
-              setSelectedNode(null);
+              if (window.confirm('Se eliminara el nodo y todas sus conexiones asociadas. Esta accion no se puede deshacer.')) {
+                eliminarNodo(node.id);
+                setSelectedNode(null);
+              }
             }}
             className="mr-auto rounded-2xl bg-red-950 px-5 py-3 text-red-300 transition hover:bg-red-900/70 hover:text-red-200"
           >

@@ -1,8 +1,9 @@
-import { Background, Controls, MiniMap, ReactFlow, type NodeTypes, Handle, Position } from '@xyflow/react';
+import { Background, Controls, MiniMap, ReactFlow, type NodeTypes, Handle, Position, type Viewport } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { useMemo } from 'react';
+import { getDocumentLabel } from '../documentUtils';
 import { useStore } from '../store';
-import type { CustomEdge, CustomNode, Testigo } from '../types';
+import type { CustomEdge, CustomNode, Documento, Testigo } from '../types';
 
 function toneForWitness(testigos: Testigo[], witnessId?: string) {
   return testigos.find((item) => item.id === witnessId)?.color ?? '#22c55e';
@@ -24,7 +25,7 @@ function NodeShell({ title, subtitle, accent, children }: { title: string; subti
   );
 }
 
-const createNodeTypes = (testigos: Testigo[]): NodeTypes => ({
+const createNodeTypes = (testigos: Testigo[], documentos: Documento[]): NodeTypes => ({
   pregunta: ({ data }) => {
     const accent = toneForWitness(testigos, data.witnessId);
     return (
@@ -44,12 +45,27 @@ const createNodeTypes = (testigos: Testigo[]): NodeTypes => ({
       {data.mitigation ? <p className="mt-3 text-sm text-zinc-200">{data.mitigation}</p> : null}
     </NodeShell>
   ),
-  documento: ({ data }) => (
-    <NodeShell title={data.label || 'Documento'} subtitle="Documento" accent="#f59e0b">
-      {data.description ? <p className="mt-3 text-sm text-zinc-200">{data.description}</p> : null}
-      {data.source ? <div className="mt-3"><Badge>{data.source}</Badge></div> : null}
-    </NodeShell>
-  ),
+  documento: ({ data }) => {
+    const documento = documentos.find((item) => item.id === data.documentId);
+    const title = documento ? getDocumentLabel(documento) : data.label || 'Documento';
+    const description = documento?.descripcion ?? data.description;
+    const reference = documento?.referencia ?? data.source;
+    const docType = documento?.tipo ?? data.documentType;
+    const docDate = documento?.fecha ?? data.documentDate;
+    const docPart = documento?.parte ?? data.documentPart;
+
+    return (
+      <NodeShell title={title} subtitle="Documento" accent="#f59e0b">
+        <div className="mt-3 flex flex-wrap gap-2">
+          {docType ? <Badge>{docType}</Badge> : null}
+          {docPart ? <Badge>{docPart}</Badge> : null}
+          {docDate ? <Badge>{docDate}</Badge> : null}
+        </div>
+        {description ? <p className="mt-3 text-sm text-zinc-200">{description}</p> : null}
+        {reference ? <div className="mt-3"><Badge>{reference}</Badge></div> : null}
+      </NodeShell>
+    );
+  },
   hecho: ({ data }) => (
     <NodeShell title={data.label || 'Hecho'} subtitle="Hecho a probar" accent="#3b82f6">
       {data.coberturaNode ? <div className="mt-3"><Badge>{data.coberturaNode}</Badge></div> : null}
@@ -68,8 +84,18 @@ const createNodeTypes = (testigos: Testigo[]): NodeTypes => ({
 });
 
 export default function FlowCanvas() {
-  const { nodes, edges, applyNodesChanges, applyEdgesChanges, onConnect, setSelectedNode, setSelectedEdge, testigos } = useStore();
-  const nodeTypes = useMemo(() => createNodeTypes(testigos), [testigos]);
+  const { nodes, edges, applyNodesChanges, applyEdgesChanges, onConnect, setSelectedNode, setSelectedEdge, testigos, documentos, setViewportCenter } = useStore();
+  const nodeTypes = useMemo(() => createNodeTypes(testigos, documentos), [testigos, documentos]);
+
+  const handleMoveEnd = useMemo(() => {
+    return (_: unknown, viewport: Viewport) => {
+      const width = window.innerWidth - 300;
+      const height = window.innerHeight;
+      const centerX = (-viewport.x + width / 2) / viewport.zoom;
+      const centerY = (-viewport.y + height / 2) / viewport.zoom;
+      setViewportCenter({ x: centerX, y: centerY });
+    };
+  }, [setViewportCenter]);
 
   return (
     <div className="h-full w-full">
@@ -92,6 +118,7 @@ export default function FlowCanvas() {
         proOptions={{ hideAttribution: true }}
         nodeTypes={nodeTypes}
         className="bg-zinc-950"
+        onMoveEnd={handleMoveEnd}
       >
         <Background color="#27272a" gap={20} />
         <MiniMap className="!bg-zinc-900" nodeColor="#71717a" pannable zoomable />

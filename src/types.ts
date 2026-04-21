@@ -6,6 +6,7 @@ export type QuestionStyle = 'abierta' | 'cerrada' | 'fijacion' | 'impugnacion' |
 export type RiskLevel = 'bajo' | 'medio' | 'alto';
 export type Priority = 'baja' | 'media' | 'alta';
 export type SessionMode = 'preparacion' | 'audiencia';
+export type ParteDocumento = 'actora' | 'demandada' | 'ambas' | 'tercero';
 export type EdgeKind =
   | 'sigue'
   | 'depende_de'
@@ -24,9 +25,13 @@ export interface Testigo {
   id: string;
   nombre: string;
   cargo?: string;
-  notas?: string;
   rolProcesal: 'proponente' | 'contrario';
-  credibilidad: number;
+  parteQuePropone: 'actora' | 'demandada' | 'tercero';
+  credibilidadEstimada?: string;
+  puntosFuertes?: string;
+  puntosDebiles?: string;
+  contradiccionesConocidas?: string;
+  notasTacticas?: string;
   color: string;
 }
 
@@ -36,6 +41,17 @@ export interface Hecho {
   descripcion?: string;
   cobertura: Cobertura;
   priority: Priority;
+}
+
+export interface Documento {
+  id: string;
+  nombre?: string;
+  descripcion?: string;
+  parte?: ParteDocumento;
+  tipo?: string;
+  fecha?: string;
+  referencia?: string;
+  notas?: string;
 }
 
 export type CustomNodeData = Record<string, unknown> & {
@@ -54,8 +70,13 @@ export type CustomNodeData = Record<string, unknown> & {
   priority?: Priority;
   severity?: RiskLevel;
   mitigation?: string;
+  documentId?: string;
   description?: string;
   source?: string;
+  documentPart?: ParteDocumento;
+  documentType?: string;
+  documentDate?: string;
+  documentReference?: string;
   coberturaNode?: Cobertura;
   askedInHearing?: boolean;
   actualAnswer?: string;
@@ -79,6 +100,7 @@ export interface Flujo {
   edges: CustomEdge[];
   testigos: Testigo[];
   hechos: Hecho[];
+  documentos?: Documento[];
   createdAt: string;
   updatedAt: string;
 }

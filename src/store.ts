@@ -1,8 +1,10 @@
 import { addEdge, applyEdgeChanges, applyNodeChanges, type Connection, type EdgeChange, type NodeChange } from '@xyflow/react';
 import { create } from 'zustand';
 import { db } from './db';
+import { getDocumentLabel } from './documentUtils';
 import { decorateEdge, getEdgeKindLabel, inferEdgeKind } from './edgeRules';
-import type { CustomEdge, CustomEdgeData, CustomNode, CustomNodeData, Flujo, Hecho, NodeKind, SessionMode, Testigo } from './types';
+import { cloneImportedFlowsAsNew } from './importExport';
+import type { CustomEdge, CustomEdgeData, CustomNode, CustomNodeData, Documento, Flujo, Hecho, NodeKind, SessionMode, Testigo } from './types';
 
 type SaveState = 'idle' | 'saving' | 'saved';
 
@@ -16,6 +18,7 @@ const createBaseFlow = (titulo: string): Flujo => ({
   edges: [],
   testigos: [],
   hechos: [],
+  documentos: [],
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),
 });
@@ -39,7 +42,15 @@ const defaultNodeData = (type: NodeKind): CustomNodeData => {
     case 'riesgo':
       return { type, label: 'Nuevo riesgo', severity: 'medio', mitigation: '' };
     case 'documento':
-      return { type, label: 'Nuevo documento', description: '', source: '' };
+      return {
+        type,
+        label: 'Nuevo documento',
+        description: '',
+        source: '',
+        documentType: '',
+        documentDate: '',
+        documentReference: '',
+      };
     case 'hecho':
       return { type, label: 'Nuevo hecho', coberturaNode: 'debil', priority: 'media' };
     case 'tema':
@@ -56,6 +67,8 @@ interface Store {
   edges: CustomEdge[];
   testigos: Testigo[];
   hechos: Hecho[];
+  documentos: Documento[];
+  viewportCenter: { x: number; y: number };
   selectedNodeId: string | null;
   selectedEdgeId: string | null;
   saveState: SaveState;
@@ -66,6 +79,7 @@ interface Store {
   renombrarFlujo: (titulo: string) => Promise<void>;
   guardarFlujo: () => Promise<void>;
   marcarGuardado: () => void;
+  setViewportCenter: (center: { x: number; y: number }) => void;
   applyNodesChanges: (changes: NodeChange<CustomNode>[]) => void;
   applyEdgesChanges: (changes: EdgeChange<CustomEdge>[]) => void;
   onConnect: (connection: Connection) => void;
@@ -78,9 +92,17 @@ interface Store {
   eliminarEdge: (id: string) => void;
   agregarTestigo: (payload: Omit<Testigo, 'id' | 'color'> & { color?: string }) => void;
   updateTestigo: (id: string, data: Partial<Testigo>) => void;
+  eliminarTestigo: (id: string) => void;
   agregarHecho: (payload: Omit<Hecho, 'id'>) => void;
   updateHecho: (id: string, data: Partial<Hecho>) => void;
+  eliminarHecho: (id: string) => void;
+  agregarDocumento: (payload?: Partial<Documento>) => void;
+  updateDocumento: (id: string, data: Partial<Documento>) => void;
+  eliminarDocumento: (id: string) => void;
+  deleteConfirm: { type: 'testigo' | 'hecho' | 'documento'; id: string; label: string } | null;
+  setDeleteConfirm: (value: { type: 'testigo' | 'hecho' | 'documento'; id: string; label: string } | null) => void;
   setMode: (mode: SessionMode) => Promise<void>;
+  importarFlujos: (flujos: Flujo[]) => Promise<number>;
 }
 
 function normalizeEdges(edges: CustomEdge[] | undefined, nodes: CustomNode[]): CustomEdge[] {
@@ -117,9 +139,12 @@ export const useStore = create<Store>((set, get) => ({
   edges: [],
   testigos: [],
   hechos: [],
+  documentos: [],
+  viewportCenter: { x: 0, y: 0 },
   selectedNodeId: null,
   selectedEdgeId: null,
   saveState: 'idle',
+  deleteConfirm: null,
 
   loadFlujos: async () => {
     const flujos = await db.flujos.orderBy('updatedAt').reverse().toArray();
@@ -131,6 +156,7 @@ export const useStore = create<Store>((set, get) => ({
       edges: normalizeEdges(actual?.edges, actual?.nodes ?? []),
       testigos: actual?.testigos ?? [],
       hechos: actual?.hechos ?? [],
+      documentos: actual?.documentos ?? [],
       selectedEdgeId: null,
       saveState: actual ? 'saved' : 'idle',
     });
@@ -147,6 +173,7 @@ export const useStore = create<Store>((set, get) => ({
       edges: [],
       testigos: [],
       hechos: [],
+      documentos: [],
       selectedNodeId: null,
       selectedEdgeId: null,
       saveState: 'saved',
@@ -164,6 +191,7 @@ export const useStore = create<Store>((set, get) => ({
       edges: normalizeEdges(actual?.edges, actual?.nodes ?? []),
       testigos: actual?.testigos ?? [],
       hechos: actual?.hechos ?? [],
+      documentos: actual?.documentos ?? [],
       selectedNodeId: null,
       selectedEdgeId: null,
       saveState: actual ? 'saved' : 'idle',
@@ -179,6 +207,7 @@ export const useStore = create<Store>((set, get) => ({
       edges: normalizeEdges(flujo.edges, flujo.nodes),
       testigos: flujo.testigos,
       hechos: flujo.hechos,
+      documentos: flujo.documentos ?? [],
       selectedNodeId: null,
       selectedEdgeId: null,
       saveState: 'saved',
@@ -197,7 +226,7 @@ export const useStore = create<Store>((set, get) => ({
   },
 
   guardarFlujo: async () => {
-    const { flujoActualId, nodes, edges, testigos, hechos, flujos } = get();
+    const { flujoActualId, nodes, edges, testigos, hechos, documentos, flujos } = get();
     if (!flujoActualId) return;
     const current = flujos.find((item) => item.id === flujoActualId) ?? (await db.flujos.get(flujoActualId));
     if (!current) return;
@@ -208,6 +237,7 @@ export const useStore = create<Store>((set, get) => ({
       edges,
       testigos,
       hechos,
+      documentos,
       updatedAt: new Date().toISOString(),
     };
     await db.flujos.put(updated);
@@ -216,6 +246,8 @@ export const useStore = create<Store>((set, get) => ({
   },
 
   marcarGuardado: () => set({ saveState: 'idle' }),
+
+  setViewportCenter: (center) => set({ viewportCenter: center }),
 
   applyNodesChanges: (changes) => {
     set((state) => ({
@@ -259,13 +291,10 @@ export const useStore = create<Store>((set, get) => ({
 
   crearNodo: (type) => {
     set((state) => {
-      const index = state.nodes.length;
-      const x = 220 + (index % 3) * 280;
-      const y = 120 + Math.floor(index / 3) * 190;
       const newNode: CustomNode = {
         id: crypto.randomUUID(),
         type,
-        position: { x, y },
+        position: state.viewportCenter,
         data: defaultNodeData(type),
       };
 
@@ -352,6 +381,17 @@ export const useStore = create<Store>((set, get) => ({
     }));
   },
 
+  eliminarTestigo: (id) => {
+    set((state) => ({
+      testigos: state.testigos.filter((testigo) => testigo.id !== id),
+      nodes: state.nodes.map((node) => {
+        if (node.data.witnessId !== id) return node;
+        return { ...node, data: { ...node.data, witnessId: undefined } };
+      }),
+      saveState: 'idle',
+    }));
+  },
+
   agregarHecho: (payload) => {
     set((state) => ({
       hechos: [...state.hechos, { id: crypto.randomUUID(), ...payload }],
@@ -366,6 +406,78 @@ export const useStore = create<Store>((set, get) => ({
     }));
   },
 
+  eliminarHecho: (id) => {
+    set((state) => ({
+      hechos: state.hechos.filter((hecho) => hecho.id !== id),
+      nodes: state.nodes.map((node) => {
+        if (node.data.factId !== id) return node;
+        return { ...node, data: { ...node.data, factId: undefined } };
+      }),
+      saveState: 'idle',
+    }));
+  },
+
+  agregarDocumento: (payload) => {
+    set((state) => ({
+      documentos: [
+        ...state.documentos,
+        {
+          id: crypto.randomUUID(),
+          ...payload,
+        },
+      ],
+      saveState: 'idle',
+    }));
+  },
+
+  updateDocumento: (id, data) => {
+    set((state) => {
+      const documentos = state.documentos.map((documento) => (documento.id === id ? { ...documento, ...data } : documento));
+      const documentoActualizado = documentos.find((documento) => documento.id === id);
+
+      return {
+        documentos,
+        nodes: state.nodes.map((node) => {
+          if (node.type !== 'documento' || node.data.documentId !== id || !documentoActualizado) return node;
+
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              label: getDocumentLabel(documentoActualizado),
+              description: documentoActualizado.descripcion ?? '',
+              source: documentoActualizado.referencia ?? '',
+              notes: documentoActualizado.notas ?? '',
+              documentPart: documentoActualizado.parte,
+              documentType: documentoActualizado.tipo ?? '',
+              documentDate: documentoActualizado.fecha ?? '',
+              documentReference: documentoActualizado.referencia ?? '',
+            },
+          };
+        }),
+        saveState: 'idle',
+      };
+    });
+  },
+
+  eliminarDocumento: (id) => {
+    set((state) => ({
+      documentos: state.documentos.filter((documento) => documento.id !== id),
+      nodes: state.nodes.map((node) => {
+        if (node.data.documentId !== id) return node;
+
+        return {
+          ...node,
+          data: {
+            ...node.data,
+            documentId: undefined,
+          },
+        };
+      }),
+      saveState: 'idle',
+    }));
+  },
+
   setMode: async (mode) => {
     const { flujoActualId, flujos } = get();
     if (!flujoActualId) return;
@@ -375,5 +487,33 @@ export const useStore = create<Store>((set, get) => ({
     await db.flujos.put(updated);
     const nextFlows = await db.flujos.orderBy('updatedAt').reverse().toArray();
     set({ flujos: nextFlows, saveState: 'saved' });
+  },
+
+  setDeleteConfirm: (value) => set({ deleteConfirm: value }),
+
+  importarFlujos: async (flujos) => {
+    const imported = cloneImportedFlowsAsNew(flujos);
+    if (imported.length === 0) return 0;
+
+    await db.flujos.bulkPut(imported);
+
+    const { flujoActualId, selectedNodeId, selectedEdgeId, saveState } = get();
+    const nextFlows = await db.flujos.orderBy('updatedAt').reverse().toArray();
+    const current = flujoActualId ? nextFlows.find((item) => item.id === flujoActualId) ?? null : null;
+
+    set((state) => ({
+      flujos: nextFlows,
+      flujoActualId: current?.id ?? state.flujoActualId,
+      nodes: current?.nodes ?? state.nodes,
+      edges: current ? normalizeEdges(current.edges, current.nodes) : state.edges,
+      testigos: current?.testigos ?? state.testigos,
+      hechos: current?.hechos ?? state.hechos,
+      documentos: current?.documentos ?? state.documentos,
+      selectedNodeId,
+      selectedEdgeId,
+      saveState,
+    }));
+
+    return imported.length;
   },
 }));

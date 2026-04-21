@@ -32,7 +32,7 @@ export default function EdgeModal() {
 
   return (
     <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/70 p-4">
-      <div className="w-full max-w-xl overflow-hidden rounded-[2rem] border border-zinc-800 bg-zinc-900 shadow-2xl">
+      <div className="flex max-h-[85vh] w-full max-w-xl flex-col overflow-hidden rounded-[2rem] border border-zinc-800 bg-zinc-900 shadow-2xl">
         <div className="flex items-center justify-between border-b border-zinc-800 px-6 py-5">
           <div>
             <div className="text-xs uppercase tracking-[0.25em] text-zinc-500">Conexion</div>
@@ -43,7 +43,7 @@ export default function EdgeModal() {
           </button>
         </div>
 
-        <div className="space-y-6 p-6">
+        <div className="min-h-0 flex-1 space-y-6 overflow-y-auto p-6">
           <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-4 text-sm text-zinc-400">
             Opciones disponibles para una conexion {sourceNode?.type ?? 'origen'} {'->'} {targetNode?.type ?? 'destino'}.
           </div>
@@ -83,7 +83,7 @@ export default function EdgeModal() {
           </div>
         </div>
 
-        <div className="flex justify-end gap-3 border-t border-zinc-800 px-6 py-5">
+        <div className="flex shrink-0 justify-end gap-3 border-t border-zinc-800 bg-zinc-900 px-6 py-5">
           <button
             onClick={() => {
               const confirmed = window.confirm('Se eliminara esta conexion del flujo. Esta accion no se puede deshacer.');

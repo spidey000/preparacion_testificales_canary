@@ -1,8 +1,12 @@
-import { AlertTriangle, FileText, MessageSquare, Plus, Save, Target, Users } from 'lucide-react';
-import { useEffect, useMemo, useRef } from 'react';
+import { AlertTriangle, Download, FileJson2, FileText, MessageSquare, Plus, Save, Target, Upload, Users } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import FlowCanvas from './components/FlowCanvas';
 import EdgeModal from './components/EdgeModal';
+import ImportDbReferenceModal from './components/ImportDbReferenceModal';
+import EliminarModal from './components/EliminarModal';
 import NodeModal from './components/NodeModal';
+import { db } from './db';
+import { buildDbFileName, parseImportedDbFile, serializeDbExport } from './importExport';
 import SidebarPanel from './components/SidebarPanel';
 import { useStore } from './store';
 import type { NodeKind } from './types';
@@ -31,6 +35,7 @@ export default function App() {
     edges,
     testigos,
     hechos,
+    documentos,
     loadFlujos,
     crearFlujo,
     eliminarFlujo,
@@ -39,9 +44,12 @@ export default function App() {
     renombrarFlujo,
     crearNodo,
     setMode,
+    importarFlujos,
   } = useStore();
 
   const didInit = useRef(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isReferenceOpen, setIsReferenceOpen] = useState(false);
 
   useEffect(() => {
     if (didInit.current) return;
@@ -55,7 +63,7 @@ export default function App() {
       void guardarFlujo();
     }, 500);
     return () => window.clearTimeout(timeout);
-  }, [flujoActualId, nodes, edges, testigos, hechos, guardarFlujo]);
+  }, [flujoActualId, nodes, edges, testigos, hechos, documentos, guardarFlujo]);
 
   const flujoActual = useMemo(() => flujos.find((item) => item.id === flujoActualId) ?? null, [flujos, flujoActualId]);
 
@@ -66,6 +74,34 @@ export default function App() {
     { type: 'hecho', label: 'Hecho', icon: Target },
     { type: 'tema', label: 'Tema', icon: Users },
   ];
+
+  async function handleExportDb() {
+    const flujosParaExportar = await db.flujos.orderBy('updatedAt').reverse().toArray();
+    const content = serializeDbExport(flujosParaExportar);
+    const blob = new Blob([content], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = buildDbFileName();
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function handleImportDb(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      const imported = parseImportedDbFile(text);
+      const count = await importarFlujos(imported);
+      window.alert(`Importacion completada. Se crearon ${count} flujo(s) nuevo(s) sin tocar el flujo actual.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'No se pudo importar el archivo .db.';
+      window.alert(message);
+    }
+  }
 
   return (
     <div className="flex h-screen bg-zinc-950 text-zinc-100">
@@ -104,6 +140,26 @@ export default function App() {
             <button onClick={() => void guardarFlujo()} className="inline-flex items-center gap-2 rounded-2xl bg-zinc-800 px-4 py-3 text-sm transition hover:bg-zinc-700">
               <Save size={18} /> Guardar
             </button>
+
+            <button onClick={() => setIsReferenceOpen(true)} className="inline-flex items-center gap-2 rounded-2xl bg-zinc-800 px-4 py-3 text-sm transition hover:bg-zinc-700">
+              <FileJson2 size={18} /> Ayuda IA
+            </button>
+
+            <button onClick={() => fileInputRef.current?.click()} className="inline-flex items-center gap-2 rounded-2xl bg-zinc-800 px-4 py-3 text-sm transition hover:bg-zinc-700">
+              <Upload size={18} /> Importar .db
+            </button>
+
+            <button onClick={() => void handleExportDb()} className="inline-flex items-center gap-2 rounded-2xl bg-zinc-800 px-4 py-3 text-sm transition hover:bg-zinc-700">
+              <Download size={18} /> Exportar .db
+            </button>
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".db,application/json"
+              onChange={(event) => void handleImportDb(event)}
+              className="hidden"
+            />
           </div>
 
           <div className="w-full flex flex-wrap items-center gap-3 text-sm text-zinc-400">
@@ -148,6 +204,8 @@ export default function App() {
 
       <NodeModal />
       <EdgeModal />
+      <ImportDbReferenceModal isOpen={isReferenceOpen} onClose={() => setIsReferenceOpen(false)} />
+      <EliminarModal />
     </div>
   );
 }
