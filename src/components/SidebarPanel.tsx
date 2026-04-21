@@ -84,13 +84,6 @@ function TestigoCard({
     <article className="group relative rounded-2xl border border-zinc-800 bg-zinc-950">
       <div className="flex items-center gap-2 p-3">
         <button
-          onClick={() => onDelete(testigo.id, testigo.nombre)}
-          className="absolute right-2 top-2 rounded-full p-1.5 text-zinc-600 opacity-0 transition hover:bg-zinc-800 hover:text-red-400 group-hover:opacity-100"
-          aria-label="Eliminar testigo"
-        >
-          <X size={14} />
-        </button>
-        <button
           onClick={() => setIsExpanded(!isExpanded)}
           className="flex w-full items-center gap-2 text-left"
         >
@@ -105,6 +98,13 @@ function TestigoCard({
 
       {isExpanded && (
         <div className="space-y-3 border-t border-zinc-800/50 p-3">
+          <button
+            onClick={() => onDelete(testigo.id, testigo.nombre)}
+            className="absolute right-2 top-2 rounded-full p-1.5 text-zinc-600 transition hover:bg-zinc-800 hover:text-red-400"
+            aria-label="Eliminar testigo"
+          >
+            <X size={14} />
+          </button>
           <div>
             <FieldLabel>Nombre</FieldLabel>
             <DocumentInput
@@ -222,13 +222,6 @@ function HechoCard({
     <article className="group relative rounded-2xl border border-zinc-800 bg-zinc-950">
       <div className="flex items-center gap-2 p-3">
         <button
-          onClick={() => onDelete(hecho.id, hecho.titulo)}
-          className="absolute right-2 top-2 rounded-full p-1.5 text-zinc-600 opacity-0 transition hover:bg-zinc-800 hover:text-red-400 group-hover:opacity-100"
-          aria-label="Eliminar hecho"
-        >
-          <X size={14} />
-        </button>
-        <button
           onClick={() => setIsExpanded(!isExpanded)}
           className="flex w-full items-center gap-2 text-left"
         >
@@ -243,6 +236,13 @@ function HechoCard({
 
       {isExpanded && (
         <div className="space-y-3 border-t border-zinc-800/50 p-3">
+          <button
+            onClick={() => onDelete(hecho.id, hecho.titulo)}
+            className="absolute right-2 top-2 rounded-full p-1.5 text-zinc-600 transition hover:bg-zinc-800 hover:text-red-400"
+            aria-label="Eliminar hecho"
+          >
+            <X size={14} />
+          </button>
           <div>
             <FieldLabel>Nombre</FieldLabel>
             <DocumentInput
@@ -342,13 +342,6 @@ function DocumentCard({
       >
         <ChevronDown size={14} />
       </button>
-      <button
-        onClick={() => onDelete(deleteType, documento.id, getDocumentLabel(documento))}
-        className="absolute right-8 top-2 rounded-full p-1.5 text-zinc-600 opacity-0 transition hover:bg-zinc-800 hover:text-red-400 group-hover:opacity-100"
-        aria-label="Eliminar documento"
-      >
-        <X size={14} />
-      </button>
 
       <div className="space-y-3">
         <div>
@@ -421,6 +414,14 @@ function DocumentCard({
             placeholder="Uso tactico, observaciones..."
           />
         </div>
+
+        <button
+          onClick={() => onDelete(deleteType, documento.id, getDocumentLabel(documento))}
+          className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl border border-red-900/50 py-2 text-sm text-red-400 transition hover:bg-red-900/20"
+          aria-label="Eliminar documento"
+        >
+          <Trash2 size={14} /> Eliminar documento
+        </button>
       </div>
     </article>
   );
