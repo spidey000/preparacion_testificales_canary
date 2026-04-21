@@ -493,9 +493,39 @@ export const useStore = create<Store>((set, get) => ({
   setDeleteConfirm: (value) => set({ deleteConfirm: value }),
 
   importarFlujos: async (flujos) => {
-    const imported = cloneImportedFlowsAsNew(flujos);
-    if (imported.length === 0) return 0;
+    console.group('[import-json] store.importarFlujos');
+    console.table(flujos.map((flujo, index) => ({
+      index,
+      id: flujo.id,
+      titulo: flujo.titulo,
+      mode: flujo.mode,
+      testigos: flujo.testigos.length,
+      hechos: flujo.hechos.length,
+      documentos: flujo.documentos?.length ?? 0,
+      nodes: flujo.nodes.length,
+      edges: flujo.edges.length,
+    })));
 
+    const imported = cloneImportedFlowsAsNew(flujos);
+    console.table(imported.map((flujo, index) => ({
+      index,
+      id: flujo.id,
+      titulo: flujo.titulo,
+      mode: flujo.mode,
+      testigos: flujo.testigos.length,
+      hechos: flujo.hechos.length,
+      documentos: flujo.documentos?.length ?? 0,
+      nodes: flujo.nodes.length,
+      edges: flujo.edges.length,
+    })));
+
+    if (imported.length === 0) {
+      console.warn('[import-json] no hay flujos para persistir');
+      console.groupEnd();
+      return 0;
+    }
+
+    console.info('[import-json] guardando flujos clonados en IndexedDB');
     await saveFlows(imported);
 
     const { flujoActualId, selectedNodeId, selectedEdgeId, saveState } = get();
@@ -514,6 +544,17 @@ export const useStore = create<Store>((set, get) => ({
       selectedEdgeId,
       saveState,
     }));
+
+    console.table([{
+      requestedImports: flujos.length,
+      clonedImports: imported.length,
+      totalFlowsAfterSave: nextFlows.length,
+      activeFlowId: current?.id ?? '(sin cambio)',
+      activeFlowTitle: current?.titulo ?? '(sin cambio)',
+      selectedNodeId: selectedNodeId ?? '(ninguno)',
+      selectedEdgeId: selectedEdgeId ?? '(ninguno)',
+    }]);
+    console.groupEnd();
 
     return imported.length;
   },

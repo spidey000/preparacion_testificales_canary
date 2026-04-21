@@ -3,13 +3,15 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import FlowCanvas from './components/FlowCanvas';
 import EdgeModal from './components/EdgeModal';
 import ImportDbReferenceModal from './components/ImportDbReferenceModal';
+import ImportAdjustmentsModal from './components/ImportAdjustmentsModal';
 import EliminarModal from './components/EliminarModal';
 import FlowHistoryModal from './components/FlowHistoryModal';
 import NodeModal from './components/NodeModal';
 import { listFlowsByUpdatedAt } from './flowRepository';
-import { buildDbFileName, parseImportedDbFile, serializeDbExport } from './importExport';
+import { buildDbFileName, buildImportDebugSummary, parseImportedDbFile, serializeDbExport } from './importExport';
 import SidebarPanel from './components/SidebarPanel';
 import { useStore } from './store';
+import type { GroupedImportAdjustment, ImportAdjustment } from './importExport';
 import type { NodeKind } from './types';
 
 function formatSaveState(state: 'idle' | 'saving' | 'saved') {
@@ -52,6 +54,11 @@ export default function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isReferenceOpen, setIsReferenceOpen] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [importResult, setImportResult] = useState<{
+    importedCount: number;
+    adjustments: ImportAdjustment[];
+    groupedAdjustments: GroupedImportAdjustment[];
+  } | null>(null);
 
   useEffect(() => {
     if (didInit.current) return;
@@ -95,15 +102,78 @@ export default function App() {
     event.target.value = '';
     if (!file) return;
 
+    console.group('[import-json] handleImportDb');
+    console.table([{
+      fileName: file.name,
+      fileSizeBytes: file.size,
+      fileType: file.type || '(sin tipo)',
+      importedAt: new Date().toISOString(),
+    }]);
+
     try {
+      console.info('[import-json] fase=read leyendo archivo');
       const text = await file.text();
-      const imported = parseImportedDbFile(text);
-      const count = await importarFlujos(imported);
-      window.alert(`Importacion completada. Se crearon ${count} flujo(s) nuevo(s) sin tocar el flujo actual.`);
+      console.info('[import-json] fase=parse invocando parseImportedDbFile');
+      const parsed = parseImportedDbFile(text);
+      const summary = buildImportDebugSummary(parsed.flujos);
+
+      console.group('[import-json] resumen previo a persistencia');
+      console.table(summary.flows.map((flow, index) => ({
+        index,
+        id: flow.id,
+        titulo: flow.titulo,
+        mode: flow.mode,
+        testigos: flow.testigos,
+        hechos: flow.hechos,
+        documentos: flow.documentos,
+        nodes: flow.nodes,
+        edges: flow.edges,
+        preguntas: flow.nodeTypes.pregunta,
+        riesgos: flow.nodeTypes.riesgo,
+        nodosDocumento: flow.nodeTypes.documento,
+        nodosHecho: flow.nodeTypes.hecho,
+        temas: flow.nodeTypes.tema,
+        cierres: flow.nodeTypes.cierre,
+      })));
+      console.groupEnd();
+
+      console.info('[import-json] fase=persist guardando flujos normalizados');
+      const count = await importarFlujos(parsed.flujos);
+
+      console.table([{
+        persistedFlows: count,
+        parsedFlows: parsed.flujos.length,
+        adjustments: parsed.adjustments.length,
+      }]);
+
+      if (parsed.adjustments.length === 0) {
+        console.info('[import-json] importacion completada sin correcciones automaticas');
+        console.groupEnd();
+        window.alert(`Importacion completada. Se crearon ${count} flujo(s) nuevo(s) sin tocar el flujo actual.`);
+        return;
+      }
+
+      console.info('[import-json] importacion completada con correcciones automaticas');
+      setImportResult({
+        importedCount: count,
+        adjustments: parsed.adjustments,
+        groupedAdjustments: parsed.groupedAdjustments,
+      });
     } catch (error) {
+      console.error('[import-json] error en handleImportDb', {
+        phase: 'read|parse|persist',
+        fileName: file.name,
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        error,
+      });
+      console.groupEnd();
       const message = error instanceof Error ? error.message : 'No se pudo importar el archivo JSON.';
       window.alert(message);
+      return;
     }
+
+    console.groupEnd();
   }
 
   return (
@@ -216,6 +286,13 @@ export default function App() {
         onClose={() => setIsHistoryOpen(false)}
         flowId={flujoActualId}
         flowTitle={flujoActual?.titulo}
+      />
+      <ImportAdjustmentsModal
+        isOpen={Boolean(importResult)}
+        onClose={() => setImportResult(null)}
+        importedCount={importResult?.importedCount ?? 0}
+        adjustments={importResult?.adjustments ?? []}
+        groupedAdjustments={importResult?.groupedAdjustments ?? []}
       />
       <EliminarModal />
     </div>

@@ -33,6 +33,61 @@ export interface DbExportFile {
   flujos: Flujo[];
 }
 
+export interface ImportAdjustment {
+  field: string;
+  path: string;
+  previousValue: string;
+  appliedValue: string;
+  reason: string;
+}
+
+export interface GroupedImportAdjustment {
+  field: string;
+  reason: string;
+  appliedValue: string;
+  occurrences: number;
+  samplePaths: string[];
+  samplePreviousValues: string[];
+}
+
+export interface ParseImportedDbResult {
+  flujos: Flujo[];
+  adjustments: ImportAdjustment[];
+  groupedAdjustments: GroupedImportAdjustment[];
+}
+
+interface ImportNodeTypeCounts {
+  pregunta: number;
+  riesgo: number;
+  documento: number;
+  hecho: number;
+  tema: number;
+  cierre: number;
+}
+
+export interface ImportFlowDebugSummary {
+  id: string;
+  titulo: string;
+  mode: SessionMode;
+  testigos: number;
+  hechos: number;
+  documentos: number;
+  nodes: number;
+  edges: number;
+  nodeTypes: ImportNodeTypeCounts;
+}
+
+export interface ImportDebugSummary {
+  flujos: number;
+  testigos: number;
+  hechos: number;
+  documentos: number;
+  nodes: number;
+  edges: number;
+  nodeTypes: ImportNodeTypeCounts;
+  flows: ImportFlowDebugSummary[];
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
@@ -45,152 +100,556 @@ function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every(isString);
 }
 
+function isNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function isBoolean(value: unknown): value is boolean {
+  return typeof value === 'boolean';
+}
+
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
-function assertEnum<T extends string>(value: unknown, allowed: T[], message: string): asserts value is T {
-  assert(isString(value) && allowed.includes(value as T), message);
+const DEFAULT_FLOW_MODE: SessionMode = 'preparacion';
+const DEFAULT_QUESTION_STYLE: QuestionStyle = 'abierta';
+const DEFAULT_RISK_LEVEL: RiskLevel = 'medio';
+const DEFAULT_PRIORITY: Priority = 'media';
+const DEFAULT_COVERAGE: Cobertura = 'debil';
+const DEFAULT_TESTIGO_PARTE: 'actora' | 'demandada' | 'tercero' = 'actora';
+const DEFAULT_TESTIGO_ROL: 'proponente' | 'contrario' = 'proponente';
+const DEFAULT_TESTIGO_CREDIBILIDAD = 'Media';
+const DEFAULT_TESTIGO_COLOR = 'hsl(200 70% 58%)';
+
+const NODE_LABEL_BY_KIND: Record<NodeKind, string> = {
+  pregunta: 'Nueva pregunta',
+  riesgo: 'Nuevo riesgo',
+  documento: 'Nuevo documento',
+  hecho: 'Nuevo hecho',
+  tema: 'Nuevo tema',
+  cierre: 'Nuevo cierre',
+};
+
+function createEmptyNodeTypeCounts(): ImportNodeTypeCounts {
+  return {
+    pregunta: 0,
+    riesgo: 0,
+    documento: 0,
+    hecho: 0,
+    tema: 0,
+    cierre: 0,
+  };
 }
 
-function assertUniqueId(idSet: Set<string>, id: string, message: string) {
-  assert(!idSet.has(id), message);
-  idSet.add(id);
+function countNodesByType(nodes: Flujo['nodes']): ImportNodeTypeCounts {
+  return nodes.reduce<ImportNodeTypeCounts>((counts, node) => {
+    counts[node.type] += 1;
+    return counts;
+  }, createEmptyNodeTypeCounts());
 }
 
-function validateNodeData(node: Record<string, unknown>, index: number) {
-  const data = node.data;
-  assert(isRecord(data), `El nodo ${index + 1} debe incluir un objeto data.`);
-  assertEnum(node.type, NODE_KINDS, `El nodo ${index + 1} tiene un tipo invalido.`);
-  assert(data.type === node.type, `El nodo ${index + 1} debe tener data.type igual a type.`);
-  assert(isString(data.label), `El nodo ${index + 1} debe incluir data.label.`);
+export function buildImportDebugSummary(flujos: Flujo[]): ImportDebugSummary {
+  const totals = {
+    flujos: flujos.length,
+    testigos: 0,
+    hechos: 0,
+    documentos: 0,
+    nodes: 0,
+    edges: 0,
+    nodeTypes: createEmptyNodeTypeCounts(),
+    flows: [] as ImportFlowDebugSummary[],
+  };
 
-  if (data.questionStyle !== undefined) {
-    assertEnum(data.questionStyle, QUESTION_STYLES, `El nodo ${index + 1} tiene questionStyle invalido.`);
+  for (const flujo of flujos) {
+    const nodeTypes = countNodesByType(flujo.nodes);
+    totals.testigos += flujo.testigos.length;
+    totals.hechos += flujo.hechos.length;
+    totals.documentos += flujo.documentos?.length ?? 0;
+    totals.nodes += flujo.nodes.length;
+    totals.edges += flujo.edges.length;
+
+    (Object.keys(nodeTypes) as NodeKind[]).forEach((kind) => {
+      totals.nodeTypes[kind] += nodeTypes[kind];
+    });
+
+    totals.flows.push({
+      id: flujo.id,
+      titulo: flujo.titulo,
+      mode: flujo.mode,
+      testigos: flujo.testigos.length,
+      hechos: flujo.hechos.length,
+      documentos: flujo.documentos?.length ?? 0,
+      nodes: flujo.nodes.length,
+      edges: flujo.edges.length,
+      nodeTypes,
+    });
   }
 
-  if (data.riskLevel !== undefined) {
-    assertEnum(data.riskLevel, RISK_LEVELS, `El nodo ${index + 1} tiene riskLevel invalido.`);
+  return totals;
+}
+
+function logFlowNormalizationSummary(flowPath: string, flow: Flujo, adjustments: ImportAdjustment[], adjustmentStartIndex: number) {
+  const flowAdjustments = adjustments.slice(adjustmentStartIndex);
+  const nodeTypes = countNodesByType(flow.nodes);
+
+  console.groupCollapsed(`[import-json] ${flowPath} normalizado`);
+  console.table([{
+    id: flow.id,
+    titulo: flow.titulo,
+    mode: flow.mode,
+    testigos: flow.testigos.length,
+    hechos: flow.hechos.length,
+    documentos: flow.documentos?.length ?? 0,
+    nodes: flow.nodes.length,
+    edges: flow.edges.length,
+    preguntas: nodeTypes.pregunta,
+    riesgos: nodeTypes.riesgo,
+    nodosDocumento: nodeTypes.documento,
+    nodosHecho: nodeTypes.hecho,
+    temas: nodeTypes.tema,
+    cierres: nodeTypes.cierre,
+    ajustes: flowAdjustments.length,
+  }]);
+
+  if (flowAdjustments.length > 0) {
+    console.table(flowAdjustments.map((adjustment) => ({
+      field: adjustment.field,
+      path: adjustment.path,
+      previousValue: adjustment.previousValue,
+      appliedValue: adjustment.appliedValue,
+      reason: adjustment.reason,
+    })));
   }
 
-  if (data.priority !== undefined) {
-    assertEnum(data.priority, PRIORITIES, `El nodo ${index + 1} tiene priority invalido.`);
-  }
+  console.groupEnd();
+}
 
-  if (data.severity !== undefined) {
-    assertEnum(data.severity, RISK_LEVELS, `El nodo ${index + 1} tiene severity invalido.`);
-  }
+function summarizeValue(value: unknown): string {
+  if (value === undefined) return '(sin valor)';
+  if (value === null) return 'null';
+  if (typeof value === 'string') return value.trim().length > 0 ? value : '(cadena vacia)';
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
 
-  if (data.coberturaNode !== undefined) {
-    assertEnum(data.coberturaNode, COVERAGE_VALUES, `El nodo ${index + 1} tiene coberturaNode invalido.`);
-  }
-
-  if (data.documentPart !== undefined) {
-    assertEnum(data.documentPart, DOCUMENT_PARTS, `El nodo ${index + 1} tiene documentPart invalido.`);
-  }
-
-  if (data.witnessId !== undefined) {
-    assert(isString(data.witnessId), `El nodo ${index + 1} tiene witnessId invalido.`);
-  }
-
-  if (data.factId !== undefined) {
-    assert(isString(data.factId), `El nodo ${index + 1} tiene factId invalido.`);
-  }
-
-  if (data.documentId !== undefined) {
-    assert(isString(data.documentId), `El nodo ${index + 1} tiene documentId invalido.`);
+  try {
+    const serialized = JSON.stringify(value);
+    if (!serialized) return String(value);
+    return serialized.length > 100 ? `${serialized.slice(0, 97)}...` : serialized;
+  } catch {
+    return String(value);
   }
 }
 
-function validateFlowRecord(flujo: unknown, index: number): asserts flujo is Flujo {
-  assert(isRecord(flujo), `El flujo ${index + 1} debe ser un objeto.`);
-  assert(isString(flujo.id), `El flujo ${index + 1} debe incluir id.`);
-  assert(isString(flujo.titulo), `El flujo ${index + 1} debe incluir titulo.`);
-  assertEnum(flujo.mode, SESSION_MODES, `El flujo ${index + 1} tiene mode invalido.`);
-  assert(Array.isArray(flujo.nodes), `El flujo ${index + 1} debe incluir nodes.`);
-  assert(Array.isArray(flujo.edges), `El flujo ${index + 1} debe incluir edges.`);
-  assert(Array.isArray(flujo.testigos), `El flujo ${index + 1} debe incluir testigos.`);
-  assert(Array.isArray(flujo.hechos), `El flujo ${index + 1} debe incluir hechos.`);
-  if (flujo.documentos !== undefined) {
-    assert(Array.isArray(flujo.documentos), `El flujo ${index + 1} debe incluir documentos como array.`);
-  }
-  assert(isString(flujo.createdAt), `El flujo ${index + 1} debe incluir createdAt.`);
-  assert(isString(flujo.updatedAt), `El flujo ${index + 1} debe incluir updatedAt.`);
+function recordAdjustment(
+  adjustments: ImportAdjustment[],
+  field: string,
+  path: string,
+  previousValue: unknown,
+  appliedValue: unknown,
+  reason: string,
+) {
+  adjustments.push({
+    field,
+    path,
+    previousValue: summarizeValue(previousValue),
+    appliedValue: summarizeValue(appliedValue),
+    reason,
+  });
+}
 
-  const nodeIds = new Set<string>();
-  const edgeIds = new Set<string>();
+function ensureRequiredString(
+  value: unknown,
+  fallback: string,
+  adjustments: ImportAdjustment[],
+  field: string,
+  path: string,
+  reason: string,
+) {
+  if (!isString(value) || value.trim().length === 0) {
+    recordAdjustment(adjustments, field, path, value, fallback, reason);
+    return fallback;
+  }
+  return value;
+}
+
+function ensureOptionalString(
+  value: unknown,
+  adjustments: ImportAdjustment[],
+  field: string,
+  path: string,
+  fallback?: string,
+) {
+  if (value === undefined) return fallback;
+  if (!isString(value)) {
+    recordAdjustment(adjustments, field, path, value, fallback, 'Se reemplazo por un valor por defecto.');
+    return fallback;
+  }
+  return value;
+}
+
+function ensureOptionalStringOrNull(
+  value: unknown,
+  adjustments: ImportAdjustment[],
+  field: string,
+  path: string,
+  fallback?: string | null,
+) {
+  if (value === undefined || value === null) return value ?? fallback;
+  if (!isString(value)) {
+    recordAdjustment(adjustments, field, path, value, fallback, 'Se reemplazo por un valor por defecto.');
+    return fallback;
+  }
+  return value;
+}
+
+function ensureOptionalBoolean(
+  value: unknown,
+  adjustments: ImportAdjustment[],
+  field: string,
+  path: string,
+  fallback?: boolean,
+) {
+  if (value === undefined) return fallback;
+  if (!isBoolean(value)) {
+    recordAdjustment(adjustments, field, path, value, fallback, 'Se reemplazo por un valor por defecto.');
+    return fallback;
+  }
+  return value;
+}
+
+function ensureEnum<T extends string>(
+  value: unknown,
+  allowed: T[],
+  fallback: T,
+  adjustments: ImportAdjustment[],
+  field: string,
+  path: string,
+) {
+  if (!isString(value) || !allowed.includes(value as T)) {
+    recordAdjustment(adjustments, field, path, value, fallback, 'Se reemplazo por un valor permitido por defecto.');
+    return fallback;
+  }
+  return value as T;
+}
+
+function ensureOptionalEnum<T extends string>(
+  value: unknown,
+  allowed: T[],
+  fallback: T | undefined,
+  adjustments: ImportAdjustment[],
+  field: string,
+  path: string,
+) {
+  if (value === undefined) return fallback;
+  if (!isString(value) || !allowed.includes(value as T)) {
+    recordAdjustment(adjustments, field, path, value, fallback, 'Se reemplazo por un valor permitido por defecto.');
+    return fallback;
+  }
+  return value as T;
+}
+
+function ensureArray(
+  value: unknown,
+  fallback: unknown[],
+  adjustments: ImportAdjustment[],
+  field: string,
+  path: string,
+) {
+  if (!Array.isArray(value)) {
+    recordAdjustment(adjustments, field, path, value, fallback, 'Se reemplazo por un array vacio.');
+    return fallback;
+  }
+  return value;
+}
+
+function ensureUniqueId(
+  value: unknown,
+  usedIds: Set<string>,
+  adjustments: ImportAdjustment[],
+  field: string,
+  path: string,
+  fallbackLabel: string,
+) {
+  const fallback = crypto.randomUUID();
+  let id = ensureRequiredString(value, fallback, adjustments, field, path, `${fallbackLabel}: se genero un id nuevo.`);
+  if (usedIds.has(id)) {
+    const replacement = crypto.randomUUID();
+    recordAdjustment(adjustments, field, path, value, replacement, `${fallbackLabel}: el id estaba repetido y se genero uno nuevo.`);
+    id = replacement;
+  }
+  usedIds.add(id);
+  return id;
+}
+
+function normalizePosition(value: unknown, nodeIndex: number, adjustments: ImportAdjustment[], path: string) {
+  const fallback = {
+    x: 160 + (nodeIndex % 4) * 300,
+    y: 120 + Math.floor(nodeIndex / 4) * 180,
+  };
+
+  if (!isRecord(value) || !isNumber(value.x) || !isNumber(value.y)) {
+    recordAdjustment(adjustments, 'nodes.position', `${path}.position`, value, fallback, 'Se reemplazo por una posicion valida por defecto.');
+    return fallback;
+  }
+
+  return {
+    x: value.x,
+    y: value.y,
+  };
+}
+
+function groupByFrequency(items: string[]) {
+  const unique = new Set<string>();
+  const out: string[] = [];
+  for (const item of items) {
+    if (unique.has(item)) continue;
+    unique.add(item);
+    out.push(item);
+    if (out.length >= 3) break;
+  }
+  return out;
+}
+
+export function groupImportAdjustments(adjustments: ImportAdjustment[]): GroupedImportAdjustment[] {
+  const grouped = new Map<string, GroupedImportAdjustment>();
+
+  for (const adjustment of adjustments) {
+    const key = `${adjustment.field}|${adjustment.reason}|${adjustment.appliedValue}`;
+    const current = grouped.get(key);
+    if (!current) {
+      grouped.set(key, {
+        field: adjustment.field,
+        reason: adjustment.reason,
+        appliedValue: adjustment.appliedValue,
+        occurrences: 1,
+        samplePaths: [adjustment.path],
+        samplePreviousValues: [adjustment.previousValue],
+      });
+      continue;
+    }
+
+    current.occurrences += 1;
+    current.samplePaths = groupByFrequency([...current.samplePaths, adjustment.path]);
+    current.samplePreviousValues = groupByFrequency([...current.samplePreviousValues, adjustment.previousValue]);
+  }
+
+  return [...grouped.values()].sort((a, b) => b.occurrences - a.occurrences);
+}
+
+function normalizeFlow(flujoValue: unknown, index: number, adjustments: ImportAdjustment[]): Flujo {
+  const flowPath = `flujos[${index}]`;
+  const adjustmentStartIndex = adjustments.length;
+  const source = isRecord(flujoValue) ? flujoValue : {};
+  if (!isRecord(flujoValue)) {
+    recordAdjustment(adjustments, 'flujo', flowPath, flujoValue, '{}', 'El flujo no era un objeto y se reemplazo por valores por defecto.');
+  }
+
+  const now = new Date().toISOString();
   const witnessIds = new Set<string>();
   const factIds = new Set<string>();
   const documentIds = new Set<string>();
+  const nodeIds = new Set<string>();
+  const edgeIds = new Set<string>();
 
-  flujo.nodes.forEach((node, nodeIndex) => {
-    assert(isRecord(node), `El nodo ${nodeIndex + 1} del flujo ${index + 1} debe ser un objeto.`);
-    assert(isString(node.id), `El nodo ${nodeIndex + 1} del flujo ${index + 1} debe incluir id.`);
-    assertUniqueId(nodeIds, node.id, `El nodo ${nodeIndex + 1} del flujo ${index + 1} repite un id.`);
-    assert(isRecord(node.position), `El nodo ${nodeIndex + 1} del flujo ${index + 1} debe incluir position.`);
-    assert(typeof node.position.x === 'number' && typeof node.position.y === 'number', `El nodo ${nodeIndex + 1} del flujo ${index + 1} debe incluir position.x e position.y numericos.`);
-    validateNodeData(node, nodeIndex);
-  });
+  const testigosSource = ensureArray(source.testigos, [], adjustments, 'testigos', `${flowPath}.testigos`);
+  const hechosSource = ensureArray(source.hechos, [], adjustments, 'hechos', `${flowPath}.hechos`);
+  const documentosSource = source.documentos === undefined
+    ? []
+    : ensureArray(source.documentos, [], adjustments, 'documentos', `${flowPath}.documentos`);
+  const nodesSource = ensureArray(source.nodes, [], adjustments, 'nodes', `${flowPath}.nodes`);
+  const edgesSource = ensureArray(source.edges, [], adjustments, 'edges', `${flowPath}.edges`);
 
-  flujo.edges.forEach((edge, edgeIndex) => {
-    assert(isRecord(edge), `La conexion ${edgeIndex + 1} del flujo ${index + 1} debe ser un objeto.`);
-    assert(isString(edge.id), `La conexion ${edgeIndex + 1} del flujo ${index + 1} debe incluir id.`);
-    assertUniqueId(edgeIds, edge.id, `La conexion ${edgeIndex + 1} del flujo ${index + 1} repite un id.`);
-    assert(isString(edge.source), `La conexion ${edgeIndex + 1} del flujo ${index + 1} debe incluir source.`);
-    assert(isString(edge.target), `La conexion ${edgeIndex + 1} del flujo ${index + 1} debe incluir target.`);
-    assert(nodeIds.has(edge.source), `La conexion ${edgeIndex + 1} del flujo ${index + 1} apunta a source inexistente.`);
-    assert(nodeIds.has(edge.target), `La conexion ${edgeIndex + 1} del flujo ${index + 1} apunta a target inexistente.`);
-    assert(isRecord(edge.data), `La conexion ${edgeIndex + 1} del flujo ${index + 1} debe incluir data.`);
-    assertEnum(edge.data.tipo, EDGE_KINDS, `La conexion ${edgeIndex + 1} del flujo ${index + 1} tiene tipo invalido.`);
-    if (edge.data.priority !== undefined) {
-      assertEnum(edge.data.priority, PRIORITIES, `La conexion ${edgeIndex + 1} del flujo ${index + 1} tiene priority invalido.`);
-    }
-  });
-
-  flujo.testigos.forEach((testigo, witnessIndex) => {
-    assert(isRecord(testigo), `El testigo ${witnessIndex + 1} del flujo ${index + 1} debe ser un objeto.`);
-    assert(isString(testigo.id), `El testigo ${witnessIndex + 1} del flujo ${index + 1} debe incluir id.`);
-    assertUniqueId(witnessIds, testigo.id, `El testigo ${witnessIndex + 1} del flujo ${index + 1} repite un id.`);
-    assert(isString(testigo.nombre), `El testigo ${witnessIndex + 1} del flujo ${index + 1} debe incluir nombre.`);
-    assertEnum(testigo.parteQuePropone, ['actora', 'demandada', 'tercero'], `El testigo ${witnessIndex + 1} del flujo ${index + 1} tiene parteQuePropone invalida.`);
-    assert(isString(testigo.color), `El testigo ${witnessIndex + 1} del flujo ${index + 1} debe incluir color.`);
-    assert(isString(testigo.credibilidadEstimada), `El testigo ${witnessIndex + 1} del flujo ${index + 1} debe incluir credibilidadEstimada.`);
-    assertEnum(testigo.rolProcesal, ['proponente', 'contrario'], `El testigo ${witnessIndex + 1} del flujo ${index + 1} tiene rolProcesal invalido.`);
-  });
-
-  flujo.hechos.forEach((hecho, factIndex) => {
-    assert(isRecord(hecho), `El hecho ${factIndex + 1} del flujo ${index + 1} debe ser un objeto.`);
-    assert(isString(hecho.id), `El hecho ${factIndex + 1} del flujo ${index + 1} debe incluir id.`);
-    assertUniqueId(factIds, hecho.id, `El hecho ${factIndex + 1} del flujo ${index + 1} repite un id.`);
-    assert(isString(hecho.titulo), `El hecho ${factIndex + 1} del flujo ${index + 1} debe incluir titulo.`);
-    assertEnum(hecho.cobertura, COVERAGE_VALUES, `El hecho ${factIndex + 1} del flujo ${index + 1} tiene cobertura invalida.`);
-    assertEnum(hecho.priority, PRIORITIES, `El hecho ${factIndex + 1} del flujo ${index + 1} tiene priority invalida.`);
-  });
-
-  flujo.documentos?.forEach((documento, documentIndex) => {
-    assert(isRecord(documento), `El documento ${documentIndex + 1} del flujo ${index + 1} debe ser un objeto.`);
-    assert(isString(documento.id), `El documento ${documentIndex + 1} del flujo ${index + 1} debe incluir id.`);
-    assertUniqueId(documentIds, documento.id, `El documento ${documentIndex + 1} del flujo ${index + 1} repite un id.`);
-    if (documento.parte !== undefined) {
-      assertEnum(documento.parte, DOCUMENT_PARTS, `El documento ${documentIndex + 1} del flujo ${index + 1} tiene parte invalida.`);
-    }
-  });
-
-  flujo.nodes.forEach((node, nodeIndex) => {
-    if (!isRecord(node.data)) return;
-
-    if (node.data.witnessId !== undefined) {
-      assert(witnessIds.has(node.data.witnessId as string), `El nodo ${nodeIndex + 1} del flujo ${index + 1} usa witnessId inexistente.`);
+  const testigos = testigosSource.map((item, witnessIndex) => {
+    const witnessPath = `${flowPath}.testigos[${witnessIndex}]`;
+    const witness = isRecord(item) ? item : {};
+    if (!isRecord(item)) {
+      recordAdjustment(adjustments, 'testigo', witnessPath, item, '{}', 'El testigo no era un objeto y se reemplazo por valores por defecto.');
     }
 
-    if (node.data.factId !== undefined) {
-      assert(factIds.has(node.data.factId as string), `El nodo ${nodeIndex + 1} del flujo ${index + 1} usa factId inexistente.`);
+    return {
+      id: ensureUniqueId(witness.id, witnessIds, adjustments, 'testigo.id', `${witnessPath}.id`, 'Testigo invalido'),
+      nombre: ensureRequiredString(witness.nombre, `Testigo ${witnessIndex + 1}`, adjustments, 'testigo.nombre', `${witnessPath}.nombre`, 'Se reemplazo por un nombre por defecto.'),
+      parteQuePropone: ensureEnum(witness.parteQuePropone, ['actora', 'demandada', 'tercero'], DEFAULT_TESTIGO_PARTE, adjustments, 'testigo.parteQuePropone', `${witnessPath}.parteQuePropone`),
+      rolProcesal: ensureEnum(witness.rolProcesal, ['proponente', 'contrario'], DEFAULT_TESTIGO_ROL, adjustments, 'testigo.rolProcesal', `${witnessPath}.rolProcesal`),
+      credibilidadEstimada: ensureRequiredString(witness.credibilidadEstimada, DEFAULT_TESTIGO_CREDIBILIDAD, adjustments, 'testigo.credibilidadEstimada', `${witnessPath}.credibilidadEstimada`, 'Se reemplazo por una credibilidad estimada por defecto.'),
+      color: ensureRequiredString(witness.color, DEFAULT_TESTIGO_COLOR, adjustments, 'testigo.color', `${witnessPath}.color`, 'Se reemplazo por un color por defecto.'),
+      cargo: ensureOptionalString(witness.cargo, adjustments, 'testigo.cargo', `${witnessPath}.cargo`),
+      puntosFuertes: ensureOptionalString(witness.puntosFuertes, adjustments, 'testigo.puntosFuertes', `${witnessPath}.puntosFuertes`),
+      puntosDebiles: ensureOptionalString(witness.puntosDebiles, adjustments, 'testigo.puntosDebiles', `${witnessPath}.puntosDebiles`),
+      contradiccionesConocidas: ensureOptionalString(witness.contradiccionesConocidas, adjustments, 'testigo.contradiccionesConocidas', `${witnessPath}.contradiccionesConocidas`),
+      notasTacticas: ensureOptionalString(witness.notasTacticas, adjustments, 'testigo.notasTacticas', `${witnessPath}.notasTacticas`),
+    };
+  });
+
+  const hechos = hechosSource.map((item, factIndex) => {
+    const factPath = `${flowPath}.hechos[${factIndex}]`;
+    const fact = isRecord(item) ? item : {};
+    if (!isRecord(item)) {
+      recordAdjustment(adjustments, 'hecho', factPath, item, '{}', 'El hecho no era un objeto y se reemplazo por valores por defecto.');
     }
 
-    if (node.data.documentId !== undefined) {
-      assert(documentIds.has(node.data.documentId as string), `El nodo ${nodeIndex + 1} del flujo ${index + 1} usa documentId inexistente.`);
-    }
+    return {
+      id: ensureUniqueId(fact.id, factIds, adjustments, 'hecho.id', `${factPath}.id`, 'Hecho invalido'),
+      titulo: ensureRequiredString(fact.titulo, `Hecho ${factIndex + 1}`, adjustments, 'hecho.titulo', `${factPath}.titulo`, 'Se reemplazo por un titulo por defecto.'),
+      cobertura: ensureEnum(fact.cobertura, COVERAGE_VALUES, DEFAULT_COVERAGE, adjustments, 'hecho.cobertura', `${factPath}.cobertura`),
+      priority: ensureEnum(fact.priority, PRIORITIES, DEFAULT_PRIORITY, adjustments, 'hecho.priority', `${factPath}.priority`),
+      descripcion: ensureOptionalString(fact.descripcion, adjustments, 'hecho.descripcion', `${factPath}.descripcion`),
+    };
   });
+
+  const documentos = documentosSource.map((item, documentIndex) => {
+    const documentPath = `${flowPath}.documentos[${documentIndex}]`;
+    const documento = isRecord(item) ? item : {};
+    if (!isRecord(item)) {
+      recordAdjustment(adjustments, 'documento', documentPath, item, '{}', 'El documento no era un objeto y se reemplazo por valores por defecto.');
+    }
+
+    return {
+      id: ensureUniqueId(documento.id, documentIds, adjustments, 'documento.id', `${documentPath}.id`, 'Documento invalido'),
+      nombre: ensureOptionalString(documento.nombre, adjustments, 'documento.nombre', `${documentPath}.nombre`),
+      descripcion: ensureOptionalString(documento.descripcion, adjustments, 'documento.descripcion', `${documentPath}.descripcion`),
+      parte: ensureOptionalEnum(documento.parte, DOCUMENT_PARTS, undefined, adjustments, 'documento.parte', `${documentPath}.parte`),
+      tipo: ensureOptionalString(documento.tipo, adjustments, 'documento.tipo', `${documentPath}.tipo`),
+      fecha: ensureOptionalString(documento.fecha, adjustments, 'documento.fecha', `${documentPath}.fecha`),
+      referencia: ensureOptionalString(documento.referencia, adjustments, 'documento.referencia', `${documentPath}.referencia`),
+      notas: ensureOptionalString(documento.notas, adjustments, 'documento.notas', `${documentPath}.notas`),
+    };
+  });
+
+  const nodes = nodesSource.map((item, nodeIndex) => {
+    const nodePath = `${flowPath}.nodes[${nodeIndex}]`;
+    const node = isRecord(item) ? item : {};
+    if (!isRecord(item)) {
+      recordAdjustment(adjustments, 'node', nodePath, item, '{}', 'El nodo no era un objeto y se reemplazo por valores por defecto.');
+    }
+
+    const type = ensureEnum(node.type, NODE_KINDS, 'pregunta', adjustments, 'node.type', `${nodePath}.type`);
+    const dataSource = isRecord(node.data) ? node.data : {};
+    if (!isRecord(node.data)) {
+      recordAdjustment(adjustments, 'node.data', `${nodePath}.data`, node.data, '{}', 'El data del nodo no era un objeto y se reemplazo por valores por defecto.');
+    }
+    if (dataSource.type !== type) {
+      recordAdjustment(adjustments, 'node.data.type', `${nodePath}.data.type`, dataSource.type, type, 'Se ajusto para coincidir con el tipo real del nodo.');
+    }
+
+    const witnessId = ensureOptionalString(dataSource.witnessId, adjustments, 'node.data.witnessId', `${nodePath}.data.witnessId`);
+    const factId = ensureOptionalString(dataSource.factId, adjustments, 'node.data.factId', `${nodePath}.data.factId`);
+    const documentId = ensureOptionalString(dataSource.documentId, adjustments, 'node.data.documentId', `${nodePath}.data.documentId`);
+
+    const safeWitnessId = witnessId && witnessIds.has(witnessId)
+      ? witnessId
+      : witnessId
+        ? (recordAdjustment(adjustments, 'node.data.witnessId', `${nodePath}.data.witnessId`, witnessId, undefined, 'La referencia de testigo no existia y se elimino.'), undefined)
+        : undefined;
+
+    const safeFactId = factId && factIds.has(factId)
+      ? factId
+      : factId
+        ? (recordAdjustment(adjustments, 'node.data.factId', `${nodePath}.data.factId`, factId, undefined, 'La referencia de hecho no existia y se elimino.'), undefined)
+        : undefined;
+
+    const safeDocumentId = documentId && documentIds.has(documentId)
+      ? documentId
+      : documentId
+        ? (recordAdjustment(adjustments, 'node.data.documentId', `${nodePath}.data.documentId`, documentId, undefined, 'La referencia de documento no existia y se elimino.'), undefined)
+        : undefined;
+
+    return {
+      id: ensureUniqueId(node.id, nodeIds, adjustments, 'node.id', `${nodePath}.id`, 'Nodo invalido'),
+      type,
+      position: normalizePosition(node.position, nodeIndex, adjustments, nodePath),
+      data: {
+        type,
+        label: ensureRequiredString(dataSource.label, NODE_LABEL_BY_KIND[type], adjustments, 'node.data.label', `${nodePath}.data.label`, 'Se reemplazo por una etiqueta por defecto.'),
+        witnessId: safeWitnessId,
+        factId: safeFactId,
+        documentId: safeDocumentId,
+        notes: ensureOptionalString(dataSource.notes, adjustments, 'node.data.notes', `${nodePath}.data.notes`),
+        texto: ensureOptionalString(dataSource.texto, adjustments, 'node.data.texto', `${nodePath}.data.texto`),
+        finalidad: ensureOptionalString(dataSource.finalidad, adjustments, 'node.data.finalidad', `${nodePath}.data.finalidad`),
+        expectedAnswer: ensureOptionalString(dataSource.expectedAnswer, adjustments, 'node.data.expectedAnswer', `${nodePath}.data.expectedAnswer`),
+        dangerousAnswer: ensureOptionalString(dataSource.dangerousAnswer, adjustments, 'node.data.dangerousAnswer', `${nodePath}.data.dangerousAnswer`),
+        followUpStrategy: ensureOptionalString(dataSource.followUpStrategy, adjustments, 'node.data.followUpStrategy', `${nodePath}.data.followUpStrategy`),
+        questionStyle: ensureOptionalEnum(dataSource.questionStyle, QUESTION_STYLES, DEFAULT_QUESTION_STYLE, adjustments, 'node.data.questionStyle', `${nodePath}.data.questionStyle`),
+        riskLevel: ensureOptionalEnum(dataSource.riskLevel, RISK_LEVELS, DEFAULT_RISK_LEVEL, adjustments, 'node.data.riskLevel', `${nodePath}.data.riskLevel`),
+        priority: ensureOptionalEnum(dataSource.priority, PRIORITIES, DEFAULT_PRIORITY, adjustments, 'node.data.priority', `${nodePath}.data.priority`),
+        severity: ensureOptionalEnum(dataSource.severity, RISK_LEVELS, DEFAULT_RISK_LEVEL, adjustments, 'node.data.severity', `${nodePath}.data.severity`),
+        mitigation: ensureOptionalString(dataSource.mitigation, adjustments, 'node.data.mitigation', `${nodePath}.data.mitigation`),
+        description: ensureOptionalString(dataSource.description, adjustments, 'node.data.description', `${nodePath}.data.description`),
+        source: ensureOptionalString(dataSource.source, adjustments, 'node.data.source', `${nodePath}.data.source`),
+        documentPart: ensureOptionalEnum(dataSource.documentPart, DOCUMENT_PARTS, undefined, adjustments, 'node.data.documentPart', `${nodePath}.data.documentPart`),
+        documentType: ensureOptionalString(dataSource.documentType, adjustments, 'node.data.documentType', `${nodePath}.data.documentType`),
+        documentDate: ensureOptionalString(dataSource.documentDate, adjustments, 'node.data.documentDate', `${nodePath}.data.documentDate`),
+        documentReference: ensureOptionalString(dataSource.documentReference, adjustments, 'node.data.documentReference', `${nodePath}.data.documentReference`),
+        coberturaNode: ensureOptionalEnum(dataSource.coberturaNode, COVERAGE_VALUES, DEFAULT_COVERAGE, adjustments, 'node.data.coberturaNode', `${nodePath}.data.coberturaNode`),
+        askedInHearing: ensureOptionalBoolean(dataSource.askedInHearing, adjustments, 'node.data.askedInHearing', `${nodePath}.data.askedInHearing`),
+        actualAnswer: ensureOptionalString(dataSource.actualAnswer, adjustments, 'node.data.actualAnswer', `${nodePath}.data.actualAnswer`),
+        isSecondary: type === 'pregunta'
+          ? ensureOptionalBoolean(dataSource.isSecondary, adjustments, 'node.data.isSecondary', `${nodePath}.data.isSecondary`, false)
+          : ensureOptionalBoolean(dataSource.isSecondary, adjustments, 'node.data.isSecondary', `${nodePath}.data.isSecondary`),
+      },
+    };
+  });
+
+  const edges: Flujo['edges'] = [];
+
+  edgesSource.forEach((item, edgeIndex) => {
+      const edgePath = `${flowPath}.edges[${edgeIndex}]`;
+      const edge = isRecord(item) ? item : {};
+      if (!isRecord(item)) {
+        recordAdjustment(adjustments, 'edge', edgePath, item, '{}', 'La conexion no era un objeto y se descarto.');
+        return;
+      }
+
+      const sourceId = isString(edge.source) ? edge.source : undefined;
+      const targetId = isString(edge.target) ? edge.target : undefined;
+      if (!sourceId || !targetId || !nodeIds.has(sourceId) || !nodeIds.has(targetId)) {
+        recordAdjustment(
+          adjustments,
+          'edge.source-target',
+          `${edgePath}.source|target`,
+          { source: edge.source, target: edge.target },
+          '(conexion descartada)',
+          'La conexion apuntaba a nodos inexistentes y se elimino.',
+        );
+        return;
+      }
+
+      const data = isRecord(edge.data) ? edge.data : {};
+      if (!isRecord(edge.data)) {
+        recordAdjustment(adjustments, 'edge.data', `${edgePath}.data`, edge.data, '{}', 'El data de la conexion no era un objeto y se reemplazo por valores por defecto.');
+      }
+
+      edges.push({
+        id: ensureUniqueId(edge.id, edgeIds, adjustments, 'edge.id', `${edgePath}.id`, 'Conexion invalida'),
+        source: sourceId,
+        target: targetId,
+        sourceHandle: ensureOptionalStringOrNull(edge.sourceHandle, adjustments, 'edge.sourceHandle', `${edgePath}.sourceHandle`),
+        targetHandle: ensureOptionalStringOrNull(edge.targetHandle, adjustments, 'edge.targetHandle', `${edgePath}.targetHandle`),
+        data: {
+          tipo: ensureEnum(data.tipo, EDGE_KINDS, 'sigue', adjustments, 'edge.data.tipo', `${edgePath}.data.tipo`),
+          customLabel: ensureOptionalString(data.customLabel, adjustments, 'edge.data.customLabel', `${edgePath}.data.customLabel`),
+          priority: ensureOptionalEnum(data.priority, PRIORITIES, DEFAULT_PRIORITY, adjustments, 'edge.data.priority', `${edgePath}.data.priority`),
+        },
+      });
+    });
+
+  const normalizedFlow = {
+    id: ensureRequiredString(source.id, crypto.randomUUID(), adjustments, 'flujo.id', `${flowPath}.id`, 'Se reemplazo por un id de flujo por defecto.'),
+    titulo: ensureRequiredString(source.titulo, `Flujo importado ${index + 1}`, adjustments, 'flujo.titulo', `${flowPath}.titulo`, 'Se reemplazo por un titulo de flujo por defecto.'),
+    mode: ensureEnum(source.mode, SESSION_MODES, DEFAULT_FLOW_MODE, adjustments, 'flujo.mode', `${flowPath}.mode`),
+    nodes,
+    edges,
+    testigos,
+    hechos,
+    documentos,
+    createdAt: ensureRequiredString(source.createdAt, now, adjustments, 'flujo.createdAt', `${flowPath}.createdAt`, 'Se reemplazo por la fecha actual.'),
+    updatedAt: ensureRequiredString(source.updatedAt, now, adjustments, 'flujo.updatedAt', `${flowPath}.updatedAt`, 'Se reemplazo por la fecha actual.'),
+  };
+
+  logFlowNormalizationSummary(flowPath, normalizedFlow, adjustments, adjustmentStartIndex);
+
+  return normalizedFlow;
 }
 
 export function buildDbExport(flujos: Flujo[]): DbExportFile {
@@ -211,26 +670,78 @@ export function serializeDbExport(flujos: Flujo[]) {
   return JSON.stringify(buildDbExport(flujos), null, 2);
 }
 
-export function parseImportedDbFile(text: string): Flujo[] {
+export function parseImportedDbFile(text: string): ParseImportedDbResult {
   let parsed: unknown;
+
+  console.group('[import-json] parseImportedDbFile');
 
   try {
     parsed = JSON.parse(text);
   } catch {
+    console.error('[import-json] JSON invalido: no se pudo parsear el texto.');
+    console.groupEnd();
     throw new Error('El archivo JSON no es valido.');
   }
 
-  assert(isRecord(parsed), 'El archivo JSON debe ser un objeto.');
-  assert(parsed.app === DB_APP_ID, 'El archivo JSON no pertenece a Testificales.');
-  assert(parsed.schemaVersion === DB_SCHEMA_VERSION, 'La version del archivo JSON no es compatible.');
-  assert(Array.isArray(parsed.flujos), 'El archivo JSON debe incluir un array flujos.');
+  try {
+    assert(isRecord(parsed), 'El archivo JSON debe ser un objeto.');
+    console.table([{
+      app: summarizeValue(parsed.app),
+      schemaVersion: summarizeValue(parsed.schemaVersion),
+      exportedAt: summarizeValue(parsed.exportedAt),
+      flujos: Array.isArray(parsed.flujos) ? parsed.flujos.length : '(no es array)',
+    }]);
 
-  const flujos = [...parsed.flujos] as Array<Record<string, unknown>>;
-  flujos.forEach((flujo, index) => {
-    validateFlowRecord(flujo as never, index);
-  });
+    assert(parsed.app === DB_APP_ID, 'El archivo JSON no pertenece a Testificales.');
+    assert(parsed.schemaVersion === DB_SCHEMA_VERSION, 'La version del archivo JSON no es compatible.');
+    assert(Array.isArray(parsed.flujos), 'El archivo JSON debe incluir un array flujos.');
 
-  return flujos as never;
+    const adjustments: ImportAdjustment[] = [];
+    const flujos = parsed.flujos.map((flujo, index) => normalizeFlow(flujo, index, adjustments));
+    const groupedAdjustments = groupImportAdjustments(adjustments);
+    const summary = buildImportDebugSummary(flujos);
+
+    console.group('[import-json] resumen global');
+    console.table([{
+      flujos: summary.flujos,
+      testigos: summary.testigos,
+      hechos: summary.hechos,
+      documentos: summary.documentos,
+      nodes: summary.nodes,
+      edges: summary.edges,
+      preguntas: summary.nodeTypes.pregunta,
+      riesgos: summary.nodeTypes.riesgo,
+      nodosDocumento: summary.nodeTypes.documento,
+      nodosHecho: summary.nodeTypes.hecho,
+      temas: summary.nodeTypes.tema,
+      cierres: summary.nodeTypes.cierre,
+      ajustes: adjustments.length,
+      gruposAjustes: groupedAdjustments.length,
+    }]);
+
+    if (groupedAdjustments.length > 0) {
+      console.table(groupedAdjustments.map((group) => ({
+        field: group.field,
+        occurrences: group.occurrences,
+        appliedValue: group.appliedValue,
+        reason: group.reason,
+        samplePaths: group.samplePaths.join(' | '),
+      })));
+    }
+
+    console.groupEnd();
+    console.groupEnd();
+
+    return {
+      flujos,
+      adjustments,
+      groupedAdjustments,
+    };
+  } catch (error) {
+    console.error('[import-json] error durante parseo/normalizacion', error);
+    console.groupEnd();
+    throw error;
+  }
 }
 
 export function cloneImportedFlowsAsNew(flujos: Flujo[]): Flujo[] {
@@ -247,42 +758,129 @@ export function cloneImportedFlowsAsNew(flujos: Flujo[]): Flujo[] {
 
 export function buildReferencePrompt() {
   return [
-    'Convierte el texto plano que te voy a pasar en un archivo JSON valido para la aplicacion Testificales.',
+    '<ta rol="sistema">',
+    'Convierte el texto plano que te voy a pasar en un JSON valido e importable por la aplicacion Testificales.',
+    '</ta>',
     '',
-    'Objetivo:',
-    'Transformar notas o texto libre que contengan testigos, hechos, preguntas, temas, riesgos, documentos y estrategia en una base de datos importable por la app.',
+    '<ta rol="objetivo">',
+    'Tu unica tarea es devolver un JSON que pase la importacion de Testificales.',
+    'Prioriza validez, consistencia interna y compatibilidad por encima de completar todos los detalles.',
+    '</ta>',
     '',
-    'Entrada esperada:',
-    '- texto plano sin estructura fija',
-    '- puede incluir bloques de testigos, hechos a probar, preguntas, documentos, riesgos y notas estrategicas',
-    '- puede incluir preguntas agrupadas por testigo o por hecho',
+    '<ta rol="salida-obligatoria">',
+    'Devuelve solo JSON valido.',
+    'No uses markdown.',
+    'No escribas explicaciones antes ni despues.',
+    'No anadas comentarios.',
+    '</ta>',
     '',
-    'Instrucciones de transformacion:',
-    '- extrae todos los testigos identificables y crea entradas en testigos',
-    '- extrae todos los hechos a probar identificables y crea entradas en hechos',
-    '- convierte cada pregunta util en un nodo de tipo pregunta',
-    '- crea nodos de tipo tema cuando existan bloques narrativos o temas de examen',
-    '- crea nodos de tipo documento cuando se mencionen contratos, correos, informes u otras evidencias',
-    '- crea nodos de tipo riesgo cuando aparezcan objeciones, evasivas, contradicciones o riesgos tacticos',
-    '- vincula cada pregunta con witnessId cuando se pueda inferir el testigo',
-    '- vincula cada pregunta con factId cuando se pueda inferir el hecho a probar',
-    '- usa conexiones logicas entre tema y pregunta, hecho y pregunta, documento y pregunta, o riesgo y pregunta cuando proceda',
-    '- si una pregunta depende claramente de otra, conecta ambas con sigue o depende_de segun corresponda',
-    '- si aparece una posible respuesta evasiva, contradiccion o peligro, crea un nodo riesgo y conectalo con conecta_riesgo',
-    '- si aparece un documento que respalda una pregunta o un hecho, crea un nodo documento y conectalo con conecta_documento o conecta_hecho',
-    '- si faltan datos, completa solo lo minimo necesario para que el archivo sea valido, sin inventar estrategia compleja no respaldada por el texto',
-    '- distribuye los nodos con posiciones x e y numericas razonables para que no se superpongan por completo',
-    '- si el texto permite varias agrupaciones, prioriza esta jerarquia: tema -> pregunta -> riesgo o documento',
+    '<ta rol="estructura-raiz">',
+    `La raiz debe ser exactamente un objeto con estas claves: "app", "schemaVersion", "exportedAt", "flujos".`,
+    `"app" debe ser exactamente "${DB_APP_ID}".`,
+    `"schemaVersion" debe ser exactamente ${DB_SCHEMA_VERSION}.`,
+    '"flujos" debe ser un array.',
+    '</ta>',
     '',
-    'Salida obligatoria:',
-    '- devuelve solo JSON valido',
-    '- no uses markdown',
-    '- no incluyas comentarios',
-    '- no anadas explicaciones antes ni despues del JSON',
+    '<ta rol="flujo-minimo">',
+    'Cada elemento de "flujos" debe ser un objeto con estas claves como minimo:',
+    '"id", "titulo", "mode", "nodes", "edges", "testigos", "hechos", "createdAt", "updatedAt".',
+    'Puedes incluir "documentos" y es recomendable incluirlo como array aunque este vacio.',
+    `"mode" solo puede ser: ${SESSION_MODES.join(' | ')}.`,
+    '</ta>',
     '',
-    `Estructura raiz exacta: { "app": "${DB_APP_ID}", "schemaVersion": ${DB_SCHEMA_VERSION}, "exportedAt": "fecha ISO", "flujos": [ ... ] }`,
+    '<ta rol="testigos">',
+    'Cada testigo debe incluir como minimo:',
+    '"id", "nombre", "parteQuePropone", "rolProcesal", "credibilidadEstimada", "color".',
+    'Valores validos:',
+    '- parteQuePropone: actora | demandada | tercero',
+    '- rolProcesal: proponente | contrario',
+    '</ta>',
     '',
-    'Esqueleto minimo exacto que debes respetar:',
+    '<ta rol="hechos">',
+    'Cada hecho debe incluir como minimo:',
+    '"id", "titulo", "cobertura", "priority".',
+    `"cobertura" solo puede ser: ${COVERAGE_VALUES.join(' | ')}.`,
+    `"priority" solo puede ser: ${PRIORITIES.join(' | ')}.`,
+    '</ta>',
+    '',
+    '<ta rol="nodos">',
+    'Cada nodo debe incluir como minimo:',
+    '"id", "type", "position", "data".',
+    `"type" solo puede ser: ${NODE_KINDS.join(' | ')}.`,
+    '"position" debe ser un objeto con "x" e "y" numericos.',
+    '"data.type" debe existir y ser exactamente igual que "type".',
+    '"data.label" debe existir y ser string.',
+    '</ta>',
+    '',
+    '<ta rol="edges">',
+    'Cada conexion debe incluir como minimo:',
+    '"id", "source", "target", "data".',
+    '"data.tipo" es obligatorio.',
+    `"data.tipo" solo puede ser: ${EDGE_KINDS.join(' | ')}.`,
+    'Si no hay relaciones claras, usa "edges": [].',
+    '</ta>',
+    '',
+    '<ta rol="referencias">',
+    'Si usas "witnessId" en un nodo, debe apuntar a un testigo existente del mismo flujo.',
+    'Si usas "factId" en un nodo, debe apuntar a un hecho existente del mismo flujo.',
+    'Si usas "documentId" en un nodo, debe apuntar a un documento existente del mismo flujo.',
+    'Cada "source" y "target" de "edges" debe apuntar a nodos existentes del mismo flujo.',
+    'No repitas ids dentro de nodos, edges, testigos, hechos o documentos del mismo flujo.',
+    '</ta>',
+    '',
+    '<ta rol="campos-opcionales-seguros">',
+    'Solo añade campos opcionales si ayudan y puedes inferirlos con suficiente claridad.',
+    'Campos opcionales seguros:',
+    '- flujo: documentos',
+    '- testigo: cargo, puntosFuertes, puntosDebiles, contradiccionesConocidas, notasTacticas',
+    '- hecho: descripcion',
+    '- documento: nombre, descripcion, parte, tipo, fecha, referencia, notas',
+    '- edge.data: customLabel, priority',
+    '- nodo pregunta: texto, finalidad, expectedAnswer, dangerousAnswer, followUpStrategy, questionStyle, riskLevel, priority, witnessId, factId, notes, isSecondary',
+    '- nodo riesgo: severity, mitigation',
+    '- nodo documento: documentId, description, source, documentPart, documentType, documentDate, documentReference, notes',
+    '- nodo hecho: coberturaNode, priority',
+    '- nodo tema o cierre: notes',
+    '</ta>',
+    '',
+    '<ta rol="defaults">',
+    'Si faltan datos, usa estos valores por defecto para mantener el JSON importable:',
+    '- flujo.mode: preparacion',
+    '- testigo.parteQuePropone: actora',
+    '- testigo.rolProcesal: proponente',
+    '- testigo.credibilidadEstimada: Media',
+    '- testigo.color: hsl(200 70% 58%)',
+    '- hecho.cobertura: debil',
+    '- hecho.priority: media',
+    '- pregunta.questionStyle: abierta',
+    '- pregunta.riskLevel: medio',
+    '- pregunta.priority: media',
+    '- riesgo.severity: medio',
+    '- edge.data.priority: media',
+    '- documentos: []',
+    '- nodes: []',
+    '- edges: []',
+    '- testigos: []',
+    '- hechos: []',
+    '</ta>',
+    '',
+    '<ta rol="reglas-transformacion">',
+    'Extrae testigos si el texto los identifica con claridad.',
+    'Extrae hechos si el texto describe hechos a probar con claridad.',
+    'Crea nodos de pregunta cuando haya preguntas utilizables.',
+    'Crea nodos de tema, documento o riesgo solo cuando el texto lo soporte de forma clara.',
+    'Si algo no esta claro, es mejor omitirlo que inventarlo.',
+    'Si no puedes inferir relaciones fiables, deja "edges" vacio.',
+    '</ta>',
+    '',
+    '<ta rol="posiciones">',
+    'Todos los nodos deben tener posiciones numericas.',
+    'Usa enteros.',
+    'Evita que dos nodos tengan exactamente la misma posicion.',
+    'Si hay varios nodos, separalos de forma razonable en una cuadricula simple.',
+    '</ta>',
+    '',
+    '<ta rol="json-base">',
     '{',
     `  "app": "${DB_APP_ID}",`,
     `  "schemaVersion": ${DB_SCHEMA_VERSION},`,
@@ -302,111 +900,22 @@ export function buildReferencePrompt() {
     '    }',
     '  ]',
     '}',
+    '</ta>',
     '',
-    'Cada flujo debe incluir obligatoriamente:',
-    '- id',
-    '- titulo',
-    '- mode',
-    '- nodes',
-    '- edges',
-    '- testigos',
-    '- hechos',
-    '- documentos',
-    '- createdAt',
-    '- updatedAt',
+    '<ta rol="autoverificacion">',
+    'Antes de responder, verifica mentalmente:',
+    `1. app = "${DB_APP_ID}"`,
+    `2. schemaVersion = ${DB_SCHEMA_VERSION}`,
+    '3. flujos es un array',
+    '4. cada flujo tiene los campos minimos',
+    '5. todos los enums usan solo valores permitidos',
+    '6. toda referencia witnessId, factId, documentId, source y target apunta a ids existentes',
+    '7. la respuesta final es solo JSON parseable',
+    '</ta>',
     '',
-    'Cada testigo debe incluir obligatoriamente:',
-    '- id',
-    '- nombre',
-    '- parteQuePropone',
-    '- rolProcesal',
-    '- credibilidadEstimada',
-    '- color',
-    '',
-    'Cada hecho debe incluir obligatoriamente:',
-    '- id',
-    '- titulo',
-    '- cobertura',
-    '- priority',
-    '',
-    'Cada documento de base debe incluir obligatoriamente:',
-    '- id',
-    '',
-    'Cada nodo debe incluir obligatoriamente:',
-    '- id',
-    '- type',
-    '- position con x e y numericos',
-    '- data',
-    '- data.type igual que type',
-    '- data.label',
-    '',
-    'Cada conexion debe incluir obligatoriamente:',
-    '- id',
-    '- source',
-    '- target',
-    '- data.tipo',
-    '',
-    'Campos recomendados por tipo de nodo:',
-    '- pregunta: data.texto, data.finalidad, data.expectedAnswer, data.dangerousAnswer, data.followUpStrategy, data.questionStyle, data.riskLevel, data.priority, data.witnessId, data.factId',
-    '- tema: data.notes',
-    '- documento: data.documentId, data.description, data.source, data.documentPart, data.documentType, data.documentDate, data.documentReference',
-    '- riesgo: data.severity, data.mitigation',
-    '- hecho: data.coberturaNode, data.priority',
-    '- cierre: data.notes',
-    '',
-    'Enums validos:',
-    `- mode: ${SESSION_MODES.join(' | ')}`,
-    `- NodeKind: ${NODE_KINDS.join(' | ')}`,
-    `- EdgeKind: ${EDGE_KINDS.join(' | ')}`,
-    `- Cobertura: ${COVERAGE_VALUES.join(' | ')}`,
-    `- QuestionStyle: ${QUESTION_STYLES.join(' | ')}`,
-    `- RiskLevel: ${RISK_LEVELS.join(' | ')}`,
-    `- Priority: ${PRIORITIES.join(' | ')}`,
-    `- ParteDocumento: ${DOCUMENT_PARTS.join(' | ')}`,
-    '',
-    'Valores por defecto cuando no se puedan inferir del texto:',
-    '- flujo.mode: preparacion',
-    '- testigo.parteQuePropone: actora',
-    '- testigo.rolProcesal: proponente',
-    '- testigo.credibilidadEstimada: "Media"',
-    '- testigo.color: usa una cadena tipo hsl(200 70% 58%)',
-    '- hecho.cobertura: debil',
-    '- hecho.priority: media',
-    '- pregunta.questionStyle: abierta',
-    '- pregunta.riskLevel: medio',
-    '- pregunta.priority: media',
-    '- riesgo.severity: medio',
-    '- edge.data.priority: media',
-    '',
-    'Reglas de ids y consistencia:',
-    '- usa UUIDs unicos en todos los ids',
-    '- witnessId debe apuntar a un testigo existente del mismo flujo cuando exista',
-    '- factId debe apuntar a un hecho existente del mismo flujo cuando exista',
-    '- documentId debe apuntar a un documento existente del mismo flujo cuando exista',
-    '- source y target de cada conexion deben apuntar a nodos existentes del mismo flujo',
-    '- data.label debe ser un resumen corto legible del nodo',
-    '- data.texto puede ser mas largo que data.label en nodos de pregunta',
-    '- no repitas ids entre testigos, hechos, nodos ni conexiones',
-    '- si no hay informacion suficiente para crear edges, devuelve edges vacio antes que inventar relaciones falsas',
-    '',
-    'Reglas de posicionamiento sugeridas para los nodos:',
-    '- usa numeros enteros',
-    '- separa nodos horizontalmente en columnas de 260 a 320 pixeles',
-    '- separa nodos verticalmente en filas de 140 a 220 pixeles',
-    '- evita colocar dos nodos exactamente en la misma posicion',
-    '',
-    'Como inferir el titulo del flujo:',
-    '- si el texto menciona un testigo principal, usa un titulo como "Interrogatorio de [Nombre]" o "Contrainterrogatorio de [Nombre]"',
-    '- si el texto trata varios testigos o varios hechos, usa un titulo global breve y descriptivo',
-    '',
-    'Comprobacion final antes de responder:',
-    '- verifica que el JSON sea parseable',
-    '- verifica que app sea testificales',
-    `- verifica que schemaVersion sea ${DB_SCHEMA_VERSION}`,
-    '- verifica que flujos sea un array',
-    '- verifica que todos los enums usen exactamente los valores permitidos',
-    '',
-    'Ahora espera mi texto plano y transformalo directamente al JSON final.',
+    '<ta rol="instruccion-final">',
+    'Espera mi texto plano y devuelvelo transformado directamente al JSON final importable.',
+    '</ta>',
   ].join('\n');
 }
 
