@@ -98,13 +98,6 @@ function TestigoCard({
 
       {isExpanded && (
         <div className="space-y-3 border-t border-zinc-800/50 p-3">
-          <button
-            onClick={() => onDelete(testigo.id, testigo.nombre)}
-            className="absolute right-2 top-2 rounded-full p-1.5 text-zinc-600 transition hover:bg-zinc-800 hover:text-red-400"
-            aria-label="Eliminar testigo"
-          >
-            <X size={14} />
-          </button>
           <div>
             <FieldLabel>Nombre</FieldLabel>
             <DocumentInput
@@ -200,6 +193,14 @@ function TestigoCard({
           <div className="text-center text-xs text-zinc-500">
             {nodesCount} nodo{nodesCount !== 1 ? 's' : ''} asociado{nodesCount !== 1 ? 's' : ''}
           </div>
+
+          <button
+            onClick={() => onDelete(testigo.id, testigo.nombre)}
+            className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl border border-red-900/50 py-2 text-sm text-red-400 transition hover:bg-red-900/20"
+            aria-label="Eliminar testigo"
+          >
+            <Trash2 size={14} /> Eliminar testigo
+          </button>
         </div>
       )}
     </article>
@@ -236,13 +237,6 @@ function HechoCard({
 
       {isExpanded && (
         <div className="space-y-3 border-t border-zinc-800/50 p-3">
-          <button
-            onClick={() => onDelete(hecho.id, hecho.titulo)}
-            className="absolute right-2 top-2 rounded-full p-1.5 text-zinc-600 transition hover:bg-zinc-800 hover:text-red-400"
-            aria-label="Eliminar hecho"
-          >
-            <X size={14} />
-          </button>
           <div>
             <FieldLabel>Nombre</FieldLabel>
             <DocumentInput
@@ -290,6 +284,14 @@ function HechoCard({
           <div className="text-center text-xs text-zinc-500">
             {nodesCount} nodo{nodesCount !== 1 ? 's' : ''} asociado{nodesCount !== 1 ? 's' : ''}
           </div>
+
+          <button
+            onClick={() => onDelete(hecho.id, hecho.titulo)}
+            className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl border border-red-900/50 py-2 text-sm text-red-400 transition hover:bg-red-900/20"
+            aria-label="Eliminar hecho"
+          >
+            <Trash2 size={14} /> Eliminar hecho
+          </button>
         </div>
       )}
     </article>
