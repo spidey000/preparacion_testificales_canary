@@ -1,8 +1,8 @@
 import type { Flujo, Cobertura, EdgeKind, NodeKind, ParteDocumento, Priority, QuestionStyle, RiskLevel, SessionMode } from './types';
 
-export const DB_FILE_EXTENSION = '.db';
+export const DB_FILE_EXTENSION = '.json';
 export const DB_APP_ID = 'testificales';
-export const DB_SCHEMA_VERSION = 1;
+export const DB_SCHEMA_VERSION = 2;
 
 const NODE_KINDS: NodeKind[] = ['pregunta', 'riesgo', 'documento', 'hecho', 'tema', 'cierre'];
 const COVERAGE_VALUES: Cobertura[] = ['no-cubierto', 'debil', 'cubierto', 'muy-cubierto'];
@@ -53,10 +53,16 @@ function assertEnum<T extends string>(value: unknown, allowed: T[], message: str
   assert(isString(value) && allowed.includes(value as T), message);
 }
 
+function assertUniqueId(idSet: Set<string>, id: string, message: string) {
+  assert(!idSet.has(id), message);
+  idSet.add(id);
+}
+
 function validateNodeData(node: Record<string, unknown>, index: number) {
   const data = node.data;
   assert(isRecord(data), `El nodo ${index + 1} debe incluir un objeto data.`);
   assertEnum(node.type, NODE_KINDS, `El nodo ${index + 1} tiene un tipo invalido.`);
+  assert(data.type === node.type, `El nodo ${index + 1} debe tener data.type igual a type.`);
   assert(isString(data.label), `El nodo ${index + 1} debe incluir data.label.`);
 
   if (data.questionStyle !== undefined) {
@@ -82,6 +88,18 @@ function validateNodeData(node: Record<string, unknown>, index: number) {
   if (data.documentPart !== undefined) {
     assertEnum(data.documentPart, DOCUMENT_PARTS, `El nodo ${index + 1} tiene documentPart invalido.`);
   }
+
+  if (data.witnessId !== undefined) {
+    assert(isString(data.witnessId), `El nodo ${index + 1} tiene witnessId invalido.`);
+  }
+
+  if (data.factId !== undefined) {
+    assert(isString(data.factId), `El nodo ${index + 1} tiene factId invalido.`);
+  }
+
+  if (data.documentId !== undefined) {
+    assert(isString(data.documentId), `El nodo ${index + 1} tiene documentId invalido.`);
+  }
 }
 
 function validateFlowRecord(flujo: unknown, index: number): asserts flujo is Flujo {
@@ -99,9 +117,16 @@ function validateFlowRecord(flujo: unknown, index: number): asserts flujo is Flu
   assert(isString(flujo.createdAt), `El flujo ${index + 1} debe incluir createdAt.`);
   assert(isString(flujo.updatedAt), `El flujo ${index + 1} debe incluir updatedAt.`);
 
+  const nodeIds = new Set<string>();
+  const edgeIds = new Set<string>();
+  const witnessIds = new Set<string>();
+  const factIds = new Set<string>();
+  const documentIds = new Set<string>();
+
   flujo.nodes.forEach((node, nodeIndex) => {
     assert(isRecord(node), `El nodo ${nodeIndex + 1} del flujo ${index + 1} debe ser un objeto.`);
     assert(isString(node.id), `El nodo ${nodeIndex + 1} del flujo ${index + 1} debe incluir id.`);
+    assertUniqueId(nodeIds, node.id, `El nodo ${nodeIndex + 1} del flujo ${index + 1} repite un id.`);
     assert(isRecord(node.position), `El nodo ${nodeIndex + 1} del flujo ${index + 1} debe incluir position.`);
     assert(typeof node.position.x === 'number' && typeof node.position.y === 'number', `El nodo ${nodeIndex + 1} del flujo ${index + 1} debe incluir position.x e position.y numericos.`);
     validateNodeData(node, nodeIndex);
@@ -110,8 +135,11 @@ function validateFlowRecord(flujo: unknown, index: number): asserts flujo is Flu
   flujo.edges.forEach((edge, edgeIndex) => {
     assert(isRecord(edge), `La conexion ${edgeIndex + 1} del flujo ${index + 1} debe ser un objeto.`);
     assert(isString(edge.id), `La conexion ${edgeIndex + 1} del flujo ${index + 1} debe incluir id.`);
+    assertUniqueId(edgeIds, edge.id, `La conexion ${edgeIndex + 1} del flujo ${index + 1} repite un id.`);
     assert(isString(edge.source), `La conexion ${edgeIndex + 1} del flujo ${index + 1} debe incluir source.`);
     assert(isString(edge.target), `La conexion ${edgeIndex + 1} del flujo ${index + 1} debe incluir target.`);
+    assert(nodeIds.has(edge.source), `La conexion ${edgeIndex + 1} del flujo ${index + 1} apunta a source inexistente.`);
+    assert(nodeIds.has(edge.target), `La conexion ${edgeIndex + 1} del flujo ${index + 1} apunta a target inexistente.`);
     assert(isRecord(edge.data), `La conexion ${edgeIndex + 1} del flujo ${index + 1} debe incluir data.`);
     assertEnum(edge.data.tipo, EDGE_KINDS, `La conexion ${edgeIndex + 1} del flujo ${index + 1} tiene tipo invalido.`);
     if (edge.data.priority !== undefined) {
@@ -122,14 +150,18 @@ function validateFlowRecord(flujo: unknown, index: number): asserts flujo is Flu
   flujo.testigos.forEach((testigo, witnessIndex) => {
     assert(isRecord(testigo), `El testigo ${witnessIndex + 1} del flujo ${index + 1} debe ser un objeto.`);
     assert(isString(testigo.id), `El testigo ${witnessIndex + 1} del flujo ${index + 1} debe incluir id.`);
+    assertUniqueId(witnessIds, testigo.id, `El testigo ${witnessIndex + 1} del flujo ${index + 1} repite un id.`);
     assert(isString(testigo.nombre), `El testigo ${witnessIndex + 1} del flujo ${index + 1} debe incluir nombre.`);
+    assertEnum(testigo.parteQuePropone, ['actora', 'demandada', 'tercero'], `El testigo ${witnessIndex + 1} del flujo ${index + 1} tiene parteQuePropone invalida.`);
     assert(isString(testigo.color), `El testigo ${witnessIndex + 1} del flujo ${index + 1} debe incluir color.`);
+    assert(isString(testigo.credibilidadEstimada), `El testigo ${witnessIndex + 1} del flujo ${index + 1} debe incluir credibilidadEstimada.`);
     assertEnum(testigo.rolProcesal, ['proponente', 'contrario'], `El testigo ${witnessIndex + 1} del flujo ${index + 1} tiene rolProcesal invalido.`);
   });
 
   flujo.hechos.forEach((hecho, factIndex) => {
     assert(isRecord(hecho), `El hecho ${factIndex + 1} del flujo ${index + 1} debe ser un objeto.`);
     assert(isString(hecho.id), `El hecho ${factIndex + 1} del flujo ${index + 1} debe incluir id.`);
+    assertUniqueId(factIds, hecho.id, `El hecho ${factIndex + 1} del flujo ${index + 1} repite un id.`);
     assert(isString(hecho.titulo), `El hecho ${factIndex + 1} del flujo ${index + 1} debe incluir titulo.`);
     assertEnum(hecho.cobertura, COVERAGE_VALUES, `El hecho ${factIndex + 1} del flujo ${index + 1} tiene cobertura invalida.`);
     assertEnum(hecho.priority, PRIORITIES, `El hecho ${factIndex + 1} del flujo ${index + 1} tiene priority invalida.`);
@@ -138,8 +170,25 @@ function validateFlowRecord(flujo: unknown, index: number): asserts flujo is Flu
   flujo.documentos?.forEach((documento, documentIndex) => {
     assert(isRecord(documento), `El documento ${documentIndex + 1} del flujo ${index + 1} debe ser un objeto.`);
     assert(isString(documento.id), `El documento ${documentIndex + 1} del flujo ${index + 1} debe incluir id.`);
+    assertUniqueId(documentIds, documento.id, `El documento ${documentIndex + 1} del flujo ${index + 1} repite un id.`);
     if (documento.parte !== undefined) {
       assertEnum(documento.parte, DOCUMENT_PARTS, `El documento ${documentIndex + 1} del flujo ${index + 1} tiene parte invalida.`);
+    }
+  });
+
+  flujo.nodes.forEach((node, nodeIndex) => {
+    if (!isRecord(node.data)) return;
+
+    if (node.data.witnessId !== undefined) {
+      assert(witnessIds.has(node.data.witnessId as string), `El nodo ${nodeIndex + 1} del flujo ${index + 1} usa witnessId inexistente.`);
+    }
+
+    if (node.data.factId !== undefined) {
+      assert(factIds.has(node.data.factId as string), `El nodo ${nodeIndex + 1} del flujo ${index + 1} usa factId inexistente.`);
+    }
+
+    if (node.data.documentId !== undefined) {
+      assert(documentIds.has(node.data.documentId as string), `El nodo ${nodeIndex + 1} del flujo ${index + 1} usa documentId inexistente.`);
     }
   });
 }
@@ -162,51 +211,22 @@ export function serializeDbExport(flujos: Flujo[]) {
   return JSON.stringify(buildDbExport(flujos), null, 2);
 }
 
-function migrateTestigo(testigo: Record<string, unknown>): Record<string, unknown> {
-  const credOld = typeof testigo.credibilidad === 'number' ? testigo.credibilidad : 5;
-  const credMap: Record<number, string> = {
-    1: 'Muy baja - poco fiable',
-    2: 'Baja',
-    3: 'Baja - tendencia a confundir detalles',
-    4: 'Media-baja',
-    5: 'Media - fiabilidad variable',
-    6: 'Media',
-    7: 'Media-alta',
-    8: 'Alta',
-    9: 'Alta - memoria detallada',
-    10: 'Muy alta - perfecto recuerdo',
-  };
-
-  return {
-    ...testigo,
-    parteQuePropone: testigo.parteQuePropone ?? 'actora',
-    credibilidadEstimada: credMap[credOld] ?? 'Media',
-    puntosFuertes: '',
-    puntosDebiles: '',
-    contradiccionesConocidas: '',
-    notasTacticas: '',
-  };
-}
-
 export function parseImportedDbFile(text: string): Flujo[] {
   let parsed: unknown;
 
   try {
     parsed = JSON.parse(text);
   } catch {
-    throw new Error('El archivo .db no contiene JSON valido.');
+    throw new Error('El archivo JSON no es valido.');
   }
 
-  assert(isRecord(parsed), 'El archivo .db debe ser un objeto JSON.');
-  assert(parsed.app === DB_APP_ID, 'El archivo .db no pertence a Testificales.');
-  assert(parsed.schemaVersion === DB_SCHEMA_VERSION, 'La version del archivo .db no es compatible.');
-  assert(Array.isArray(parsed.flujos), 'El archivo .db debe incluir un array flujos.');
+  assert(isRecord(parsed), 'El archivo JSON debe ser un objeto.');
+  assert(parsed.app === DB_APP_ID, 'El archivo JSON no pertenece a Testificales.');
+  assert(parsed.schemaVersion === DB_SCHEMA_VERSION, 'La version del archivo JSON no es compatible.');
+  assert(Array.isArray(parsed.flujos), 'El archivo JSON debe incluir un array flujos.');
 
   const flujos = [...parsed.flujos] as Array<Record<string, unknown>>;
   flujos.forEach((flujo, index) => {
-    if (Array.isArray(flujo.testigos)) {
-      flujo.testigos = flujo.testigos.map((t) => migrateTestigo(t as Record<string, unknown>));
-    }
     validateFlowRecord(flujo as never, index);
   });
 
@@ -227,7 +247,7 @@ export function cloneImportedFlowsAsNew(flujos: Flujo[]): Flujo[] {
 
 export function buildReferencePrompt() {
   return [
-    'Convierte el texto plano que te voy a pasar en un archivo JSON valido con extension .db para la aplicacion Testificales.',
+    'Convierte el texto plano que te voy a pasar en un archivo JSON valido para la aplicacion Testificales.',
     '',
     'Objetivo:',
     'Transformar notas o texto libre que contengan testigos, hechos, preguntas, temas, riesgos, documentos y estrategia en una base de datos importable por la app.',
@@ -298,8 +318,9 @@ export function buildReferencePrompt() {
     'Cada testigo debe incluir obligatoriamente:',
     '- id',
     '- nombre',
+    '- parteQuePropone',
     '- rolProcesal',
-    '- credibilidad',
+    '- credibilidadEstimada',
     '- color',
     '',
     'Cada hecho debe incluir obligatoriamente:',
@@ -345,8 +366,9 @@ export function buildReferencePrompt() {
     '',
     'Valores por defecto cuando no se puedan inferir del texto:',
     '- flujo.mode: preparacion',
+    '- testigo.parteQuePropone: actora',
     '- testigo.rolProcesal: proponente',
-    '- testigo.credibilidad: 5',
+    '- testigo.credibilidadEstimada: "Media"',
     '- testigo.color: usa una cadena tipo hsl(200 70% 58%)',
     '- hecho.cobertura: debil',
     '- hecho.priority: media',
@@ -380,11 +402,11 @@ export function buildReferencePrompt() {
     'Comprobacion final antes de responder:',
     '- verifica que el JSON sea parseable',
     '- verifica que app sea testificales',
-    '- verifica que schemaVersion sea 1',
+    `- verifica que schemaVersion sea ${DB_SCHEMA_VERSION}`,
     '- verifica que flujos sea un array',
     '- verifica que todos los enums usen exactamente los valores permitidos',
     '',
-    'Ahora espera mi texto plano y transformalo directamente al JSON .db final.',
+    'Ahora espera mi texto plano y transformalo directamente al JSON final.',
   ].join('\n');
 }
 
@@ -402,7 +424,7 @@ export function getReferenceEnums() {
 
 export function getReferenceNotes() {
   return [
-    'El archivo importable es JSON propio de la app aunque use extension .db.',
+    'El archivo importable es JSON propio de la app.',
     'Al importar, cada flujo se clona como un flujo nuevo para no tocar el flujo actual.',
     'Los nodos deben conservar referencias validas en edges.source y edges.target.',
     'witnessId y factId deben apuntar a ids existentes dentro del mismo flujo cuando se usen.',
@@ -414,7 +436,7 @@ export function getReferenceNotes() {
 export function getReferenceOptionalFields() {
   return {
     flujo: ['documentos'],
-    testigo: ['cargo', 'notas'],
+    testigo: ['cargo', 'puntosFuertes', 'puntosDebiles', 'contradiccionesConocidas', 'notasTacticas'],
     hecho: ['descripcion'],
     documento: ['nombre', 'descripcion', 'parte', 'tipo', 'fecha', 'referencia', 'notas'],
     edge: ['sourceHandle', 'targetHandle', 'data.customLabel', 'data.priority'],
