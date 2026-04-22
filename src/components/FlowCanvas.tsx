@@ -61,13 +61,11 @@ const createNodeTypes = (testigos: Testigo[], hechos: Hecho[], documentos: Docum
         <div className="mb-2 text-[10px] uppercase tracking-[0.28em] text-zinc-300">Pregunta</div>
         <div className="text-sm font-semibold leading-5 text-zinc-50 whitespace-pre-wrap break-words">{data.texto || data.label || 'Pregunta'}</div>
         <div className="mt-3 space-y-1 text-[11px] text-zinc-300">
-          <div className="flex items-center gap-2 rounded-xl bg-black/20 px-2 py-1">
-            <span>Testigo:</span>
-            <ColorBadge color={accent}>{witnessLabel || 'Sin asignar'}</ColorBadge>
+          <div className="rounded-xl bg-black/20 px-2 py-1">
+            {witnessLabel ? <ColorBadge color={accent}>{witnessLabel}</ColorBadge> : <span>Testigo: no asociado</span>}
           </div>
-          <div className="flex items-center gap-2 rounded-xl bg-black/20 px-2 py-1">
-            <span>Hecho:</span>
-            <ColorBadge color={factColor}>{factLabel || 'Sin asignar'}</ColorBadge>
+          <div className="rounded-xl bg-black/20 px-2 py-1">
+            {factLabel ? <ColorBadge color={factColor}>{factLabel}</ColorBadge> : <span>Hecho: no asociado</span>}
           </div>
           {data.topicLabel ? <div className="rounded-xl bg-black/20 px-2 py-1">Tema: {data.topicLabel}</div> : null}
         </div>
