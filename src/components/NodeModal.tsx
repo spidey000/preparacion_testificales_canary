@@ -1,9 +1,10 @@
 import { X } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { getFactCoverageByQuestionNodes } from '../factCoverage';
 import ModalShell from './ModalShell';
 import { getDocumentLabel, sortDocumentsByName } from '../documentUtils';
 import { useStore } from '../store';
-import type { Cobertura, Priority, QuestionStyle, RiskLevel } from '../types';
+import type { Priority, QuestionStyle, RiskLevel } from '../types';
 
 const PART_LABELS: Record<string, string> = {
   actora: 'Actora',
@@ -33,10 +34,14 @@ function sanitizeAnswers(answers: Array<{ id: string; texto: string }> | undefin
 }
 
 export default function NodeModal() {
-  const { selectedNodeId, nodes, updateNode, eliminarNodo, setSelectedNode, testigos, hechos, documentos, setDeleteConfirm } = useStore();
+  const { selectedNodeId, nodes, updateNode, eliminarNodo, setSelectedNode, testigos, hechos, documentos } = useStore();
   const node = nodes.find((item) => item.id === selectedNodeId);
   const [formData, setFormData] = useState(node?.data);
   const documentosOrdenados = sortDocumentsByName(documentos);
+  const questionNodeCount = node?.data.type === 'hecho'
+    ? (node.data.factId ? nodes.filter((item) => item.type === 'pregunta' && item.data.factId === node.data.factId).length : 0)
+    : 0;
+  const computedCoverage = getFactCoverageByQuestionNodes(questionNodeCount);
 
   useEffect(() => {
     setFormData(node?.data);
@@ -88,6 +93,43 @@ export default function NodeModal() {
                 <FieldLabel>Texto de la pregunta</FieldLabel>
                 <Textarea rows={4} value={formData.texto ?? ''} onChange={(e) => setFormData({ ...formData, texto: e.target.value })} />
               </div>
+              <div className="md:col-span-2">
+                <FieldLabel>Respuestas y salidas</FieldLabel>
+                <div className="space-y-2 rounded-2xl border border-zinc-800 bg-zinc-900/50 p-3">
+                  {(formData.answers ?? []).map((answer, index) => (
+                    <div key={answer.id} className="flex items-center gap-2">
+                      <Input
+                        value={answer.texto}
+                        onChange={(e) => setFormData({
+                          ...formData,
+                          answers: (formData.answers ?? []).map((item) => (item.id === answer.id ? { ...item, texto: e.target.value } : item)),
+                        })}
+                        placeholder={`Respuesta ${index + 1}`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setFormData({
+                          ...formData,
+                          answers: (formData.answers ?? []).filter((item) => item.id !== answer.id),
+                        })}
+                        className="rounded-2xl border border-zinc-700 px-3 py-3 text-zinc-300 transition hover:bg-zinc-800"
+                      >
+                        Eliminar
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => setFormData({
+                      ...formData,
+                      answers: [...(formData.answers ?? []), { id: crypto.randomUUID(), texto: '' }],
+                    })}
+                    className="rounded-2xl border border-zinc-700 px-4 py-3 text-sm text-zinc-300 transition hover:bg-zinc-800"
+                  >
+                    + Anadir respuesta
+                  </button>
+                </div>
+              </div>
               <div>
                 <FieldLabel>Finalidad</FieldLabel>
                 <Input value={formData.finalidad ?? ''} onChange={(e) => setFormData({ ...formData, finalidad: e.target.value })} />
@@ -125,51 +167,6 @@ export default function NodeModal() {
                   <option value="medio">Medio</option>
                   <option value="alto">Alto</option>
                 </Select>
-              </div>
-              <div>
-                <FieldLabel>Respuesta esperada</FieldLabel>
-                <Textarea rows={3} value={formData.expectedAnswer ?? ''} onChange={(e) => setFormData({ ...formData, expectedAnswer: e.target.value })} />
-              </div>
-              <div>
-                <FieldLabel>Respuesta peligrosa</FieldLabel>
-                <Textarea rows={3} value={formData.dangerousAnswer ?? ''} onChange={(e) => setFormData({ ...formData, dangerousAnswer: e.target.value })} />
-              </div>
-              <div className="md:col-span-2">
-                <FieldLabel>Respuestas y salidas</FieldLabel>
-                <div className="space-y-2 rounded-2xl border border-zinc-800 bg-zinc-900/50 p-3">
-                  {(formData.answers ?? []).map((answer, index) => (
-                    <div key={answer.id} className="flex items-center gap-2">
-                      <Input
-                        value={answer.texto}
-                        onChange={(e) => setFormData({
-                          ...formData,
-                          answers: (formData.answers ?? []).map((item) => (item.id === answer.id ? { ...item, texto: e.target.value } : item)),
-                        })}
-                        placeholder={`Respuesta ${index + 1}`}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setFormData({
-                          ...formData,
-                          answers: (formData.answers ?? []).filter((item) => item.id !== answer.id),
-                        })}
-                        className="rounded-2xl border border-zinc-700 px-3 py-3 text-zinc-300 transition hover:bg-zinc-800"
-                      >
-                        Eliminar
-                      </button>
-                    </div>
-                  ))}
-                  <button
-                    type="button"
-                    onClick={() => setFormData({
-                      ...formData,
-                      answers: [...(formData.answers ?? []), { id: crypto.randomUUID(), texto: '' }],
-                    })}
-                    className="rounded-2xl border border-zinc-700 px-4 py-3 text-sm text-zinc-300 transition hover:bg-zinc-800"
-                  >
-                    + Anadir respuesta
-                  </button>
-                </div>
               </div>
             </>
           ) : null}
@@ -255,12 +252,7 @@ export default function NodeModal() {
           {node.data.type === 'hecho' ? (
             <div>
               <FieldLabel>Cobertura</FieldLabel>
-              <Select value={formData.coberturaNode ?? 'debil'} onChange={(e) => setFormData({ ...formData, coberturaNode: e.target.value as Cobertura })}>
-                <option value="no-cubierto">No cubierto</option>
-                <option value="debil">Debil</option>
-                <option value="cubierto">Cubierto</option>
-                <option value="muy-cubierto">Muy cubierto</option>
-              </Select>
+              <Input value={`${computedCoverage} (${questionNodeCount} pregunta${questionNodeCount === 1 ? '' : 's'})`} readOnly />
             </div>
           ) : null}
 

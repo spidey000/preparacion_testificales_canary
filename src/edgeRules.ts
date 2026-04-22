@@ -65,7 +65,7 @@ export function decorateEdge(edge: CustomEdge): CustomEdge {
   const tipo = edge.data?.tipo ?? 'sigue';
   const customLabel = typeof edge.data?.customLabel === 'string' ? edge.data.customLabel.trim() : '';
   const sourceAnswerText = typeof edge.data?.sourceAnswerText === 'string' ? edge.data.sourceAnswerText.trim() : '';
-  const autoAnswerLabel = sourceAnswerText ? `${getEdgeKindLabel(tipo)}\nRESPUESTA: ${sourceAnswerText}` : '';
+  const autoAnswerLabel = sourceAnswerText ? `${getEdgeKindLabel(tipo)}\nRespuesta: ${sourceAnswerText}` : '';
   const label = customLabel.length > 0 ? customLabel : autoAnswerLabel || getEdgeKindLabel(tipo);
   const visual = EDGE_KIND_STYLES[tipo];
   const style: CSSProperties = {

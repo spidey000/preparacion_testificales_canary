@@ -3,6 +3,7 @@ import { useMemo, useRef, useState } from 'react';
 import { buildRandomAccentColor, buildUniqueFactColor, getReadableTextColor } from '../colorUtils';
 import ModalShell from './ModalShell';
 import { getDocumentLabel, sortDocumentsByName } from '../documentUtils';
+import { getFactCoverageByQuestionNodes } from '../factCoverage';
 import { useStore } from '../store';
 import type { Documento, Hecho, ParteDocumento, PreguntaBase, PreguntaRespuesta, Testigo } from '../types';
 
@@ -350,15 +351,16 @@ function TestigoCard({
 
 function HechoCard({
   hecho,
-  nodesCount,
+  questionNodesCount,
   onDelete,
 }: {
   hecho: Hecho;
-  nodesCount: number;
+  questionNodesCount: number;
   onDelete: (id: string, titulo: string) => void;
 }) {
   const { updateHecho, hechos } = useStore();
   const [isExpanded, setIsExpanded] = useState(false);
+  const coverage = getFactCoverageByQuestionNodes(questionNodesCount);
 
   return (
     <article className="group relative">
@@ -369,7 +371,7 @@ function HechoCard({
         <div className="min-w-0 flex-1">
           <ColorChip label={hecho.titulo} color={hecho.color} />
           <div className="mt-0.5 pl-1 text-[11px] text-zinc-500">
-            {hecho.cobertura} · {nodesCount} nodo{nodesCount !== 1 ? 's' : ''}
+            {coverage} · {questionNodesCount} pregunta{questionNodesCount !== 1 ? 's' : ''}
           </div>
         </div>
         <ChevronDown size={14} className={`mt-1 shrink-0 text-zinc-600 transition ${isExpanded ? 'rotate-180' : ''}`} />
@@ -398,16 +400,8 @@ function HechoCard({
           <div className="grid grid-cols-2 gap-2">
             <div>
               <FieldLabel>Cobertura</FieldLabel>
-              <DocumentSelect
-                value={hecho.cobertura ?? 'debil'}
-                onChange={(e) => updateHecho(hecho.id, { cobertura: e.target.value as 'no-cubierto' | 'debil' | 'cubierto' | 'muy-cubierto' })}
-                style={buildColorSelectStyle(hecho.color)}
-              >
-                <option value="no-cubierto">No cubierto</option>
-                <option value="debil">Debil</option>
-                <option value="cubierto">Cubierto</option>
-                <option value="muy-cubierto">Muy cubierto</option>
-              </DocumentSelect>
+              <DocumentInput value={coverage} readOnly style={buildColorSelectStyle(hecho.color)} />
+              <p className="mt-1 text-xs text-zinc-500">Calculado segun preguntas del canvas asociadas a este hecho.</p>
             </div>
             <div>
               <FieldLabel>Prioridad</FieldLabel>
@@ -445,7 +439,7 @@ function HechoCard({
           </div>
 
           <div className="text-center text-xs text-zinc-500">
-            {nodesCount} nodo{nodesCount !== 1 ? 's' : ''} asociado{nodesCount !== 1 ? 's' : ''}
+            {questionNodesCount} pregunta{questionNodesCount !== 1 ? 's' : ''} asociada{questionNodesCount !== 1 ? 's' : ''}
           </div>
 
           <button
@@ -807,15 +801,7 @@ function HechoModal({
           <div className="grid grid-cols-2 gap-2">
             <div>
               <FieldLabel>Cobertura</FieldLabel>
-              <DocumentSelect
-                value={formData.cobertura}
-                onChange={(e) => setFormData({ ...formData, cobertura: e.target.value as 'no-cubierto' | 'debil' | 'cubierto' | 'muy-cubierto' })}
-              >
-                <option value="no-cubierto">No cubierto</option>
-                <option value="debil">Debil</option>
-                <option value="cubierto">Cubierto</option>
-                <option value="muy-cubierto">Muy cubierto</option>
-              </DocumentSelect>
+              <DocumentInput value="Se calcula automaticamente" readOnly />
             </div>
             <div>
               <FieldLabel>Prioridad</FieldLabel>
@@ -1323,7 +1309,7 @@ export default function SidebarPanel({
                 <HechoCard
                   key={hecho.id}
                   hecho={hecho}
-                  nodesCount={nodes.filter((node) => node.data.factId === hecho.id).length}
+                  questionNodesCount={nodes.filter((node) => node.type === 'pregunta' && node.data.factId === hecho.id).length}
                   onDelete={(id, titulo) => handleEliminar('hecho', id, titulo)}
                 />
               ))}

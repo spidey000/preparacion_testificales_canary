@@ -25,6 +25,8 @@ export default function LabeledEdge({
 
   const labelText = typeof label === 'string' ? label : '';
   const isAnswerEdge = typeof data?.sourceAnswerText === 'string' && data.sourceAnswerText.trim().length > 0;
+  const [connectionTypeText, ...labelRestLines] = labelText.split('\n');
+  const answerBodyText = labelRestLines.join('\n');
 
   return (
     <>
@@ -32,13 +34,20 @@ export default function LabeledEdge({
       {labelText ? (
         <EdgeLabelRenderer>
           <div
-            className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 rounded-md bg-black/95 px-2 py-1 text-center text-xs font-semibold whitespace-pre-line"
+            className="pointer-events-none absolute flex max-h-[20ch] w-[20ch] -translate-x-1/2 -translate-y-1/2 items-center justify-center overflow-hidden rounded-xl border border-zinc-700 bg-black/95 px-2 py-2 text-center text-xs font-semibold leading-4 whitespace-pre-wrap break-words shadow-xl"
             style={{
               transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
-              color: isAnswerEdge ? '#facc15' : '#d4d4d8',
+              color: '#d4d4d8',
             }}
           >
-            {labelText}
+            {isAnswerEdge ? (
+              <div>
+                <div style={{ color: '#ef4444' }}>{connectionTypeText}</div>
+                {answerBodyText ? <div style={{ color: '#facc15' }}>{answerBodyText}</div> : null}
+              </div>
+            ) : (
+              labelText
+            )}
           </div>
         </EdgeLabelRenderer>
       ) : null}

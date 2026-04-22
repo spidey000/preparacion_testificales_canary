@@ -1,8 +1,9 @@
 import { Background, Controls, MiniMap, ReactFlow, type EdgeTypes, type NodeTypes, Handle, Position, type Viewport, useUpdateNodeInternals } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { getReadableTextColor } from '../colorUtils';
 import { getDocumentLabel } from '../documentUtils';
+import { getFactCoverageByQuestionNodes } from '../factCoverage';
 import LabeledEdge from './LabeledEdge';
 import { useStore } from '../store';
 import type { CustomEdge, CustomNode, Documento, Hecho, PreguntaRespuesta, Testigo } from '../types';
@@ -42,9 +43,10 @@ function NodeShell({ title, subtitle, accent, children }: { title: string; subti
   );
 }
 
-const createNodeTypes = (testigos: Testigo[], hechos: Hecho[], documentos: Documento[]): NodeTypes => ({
+const createNodeTypes = (testigos: Testigo[], hechos: Hecho[], documentos: Documento[], nodes: CustomNode[], edges: CustomEdge[]): NodeTypes => ({
   pregunta: ({ id, data }) => {
     const updateNodeInternals = useUpdateNodeInternals();
+    const [hoveredAnswerId, setHoveredAnswerId] = useState<string | null>(null);
     const accent = toneForWitness(testigos, data.witnessId);
     const witnessLabel = testigos.find((item) => item.id === data.witnessId)?.nombre;
     const factLabel = hechos.find((item) => item.id === data.factId)?.titulo;
@@ -73,16 +75,34 @@ const createNodeTypes = (testigos: Testigo[], hechos: Hecho[], documentos: Docum
           {data.questionStyle ? <Badge>{data.questionStyle}</Badge> : null}
           {data.priority ? <Badge>{data.priority}</Badge> : null}
         </div>
-        {answers.map((answer: PreguntaRespuesta, index: number) => (
-          <Handle
-            key={answer.id}
-            id={`answer:${answer.id}`}
-            type="source"
-            position={Position.Right}
-            style={{ top: `${Math.round(((index + 1) / (answers.length + 1)) * 100)}%` }}
-            className="!h-3 !w-3 !border-0 !bg-yellow-300"
-          />
-        ))}
+        {answers.map((answer: PreguntaRespuesta, index: number) => {
+          const top = `${Math.round(((index + 1) / (answers.length + 1)) * 100)}%`;
+          const isConnected = edges.some((edge) => edge.source === id && edge.data?.sourceAnswerId === answer.id);
+          const showTooltip = !isConnected && hoveredAnswerId === answer.id && answer.texto.trim().length > 0;
+
+          return (
+            <div key={answer.id} className="absolute right-[-10px] z-10 h-6 w-6 -translate-y-1/2" style={{ top }}>
+              {showTooltip ? (
+                <div className="pointer-events-none absolute right-5 top-1/2 z-20 max-w-[18ch] -translate-y-1/2 rounded-lg border border-yellow-400/50 bg-zinc-950/95 px-2 py-1 text-[11px] font-medium leading-4 text-yellow-100 shadow-xl">
+                  {answer.texto}
+                </div>
+              ) : null}
+              <Handle
+                id={`answer:${answer.id}`}
+                type="source"
+                position={Position.Right}
+                style={{ top: '50%' }}
+                className="!h-3 !w-3 !border-0 !bg-yellow-300"
+                onMouseEnter={() => {
+                  if (!isConnected) setHoveredAnswerId(answer.id);
+                }}
+                onMouseLeave={() => {
+                  if (hoveredAnswerId === answer.id) setHoveredAnswerId(null);
+                }}
+              />
+            </div>
+          );
+        })}
       </div>
     );
   },
@@ -116,6 +136,8 @@ const createNodeTypes = (testigos: Testigo[], hechos: Hecho[], documentos: Docum
   hecho: ({ data }) => {
     const accent = toneForFact(hechos, data.factId);
     const factLabel = (hechos.find((item) => item.id === data.factId)?.titulo ?? data.label) || 'Hecho';
+    const questionNodeCount = data.factId ? nodes.filter((node) => node.type === 'pregunta' && node.data.factId === data.factId).length : 0;
+    const coverage = getFactCoverageByQuestionNodes(questionNodeCount);
     return (
       <NodeShell title="Hecho" subtitle="Hecho a probar" accent={accent}>
         <div className="mt-3">
@@ -126,7 +148,10 @@ const createNodeTypes = (testigos: Testigo[], hechos: Hecho[], documentos: Docum
             <span className="truncate">{factLabel}</span>
           </span>
         </div>
-        {data.coberturaNode ? <div className="mt-3"><Badge>{data.coberturaNode}</Badge></div> : null}
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Badge>{coverage}</Badge>
+          <Badge>{questionNodeCount} pregunta{questionNodeCount === 1 ? '' : 's'}</Badge>
+        </div>
       </NodeShell>
     );
   },
@@ -144,7 +169,7 @@ const createNodeTypes = (testigos: Testigo[], hechos: Hecho[], documentos: Docum
 
 export default function FlowCanvas() {
   const { nodes, edges, applyNodesChanges, applyEdgesChanges, onConnect, setSelectedNode, setSelectedEdge, testigos, hechos, documentos, setViewportCenter } = useStore();
-  const nodeTypes = useMemo(() => createNodeTypes(testigos, hechos, documentos), [testigos, hechos, documentos]);
+  const nodeTypes = useMemo(() => createNodeTypes(testigos, hechos, documentos, nodes, edges), [testigos, hechos, documentos, nodes, edges]);
   const edgeTypes = useMemo<EdgeTypes>(() => ({ labeled: LabeledEdge }), []);
 
   const handleMoveEnd = useMemo(() => {
