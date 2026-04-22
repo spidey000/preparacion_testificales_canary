@@ -1,7 +1,8 @@
-import { Background, Controls, MiniMap, ReactFlow, type NodeTypes, Handle, Position, type Viewport } from '@xyflow/react';
+import { Background, Controls, MiniMap, ReactFlow, type EdgeTypes, type NodeTypes, Handle, Position, type Viewport, useUpdateNodeInternals } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { getDocumentLabel } from '../documentUtils';
+import LabeledEdge from './LabeledEdge';
 import { useStore } from '../store';
 import type { CustomEdge, CustomNode, Documento, Hecho, PreguntaRespuesta, Testigo } from '../types';
 
@@ -26,11 +27,16 @@ function NodeShell({ title, subtitle, accent, children }: { title: string; subti
 }
 
 const createNodeTypes = (testigos: Testigo[], hechos: Hecho[], documentos: Documento[]): NodeTypes => ({
-  pregunta: ({ data }) => {
+  pregunta: ({ id, data }) => {
+    const updateNodeInternals = useUpdateNodeInternals();
     const accent = toneForWitness(testigos, data.witnessId);
     const witnessLabel = testigos.find((item) => item.id === data.witnessId)?.nombre;
     const factLabel = hechos.find((item) => item.id === data.factId)?.titulo;
     const answers = (data.answers ?? []) as PreguntaRespuesta[];
+
+    useEffect(() => {
+      updateNodeInternals(id);
+    }, [id, updateNodeInternals, answers.map((answer) => answer.id).join('|')]);
 
     return (
       <div className="relative w-[240px] rounded-[28px] border px-4 py-4 text-zinc-100 shadow-2xl backdrop-blur" style={{ borderColor: accent, background: `linear-gradient(180deg, ${accent}18, rgba(24,24,27,0.96))` }}>
@@ -106,6 +112,7 @@ const createNodeTypes = (testigos: Testigo[], hechos: Hecho[], documentos: Docum
 export default function FlowCanvas() {
   const { nodes, edges, applyNodesChanges, applyEdgesChanges, onConnect, setSelectedNode, setSelectedEdge, testigos, hechos, documentos, setViewportCenter } = useStore();
   const nodeTypes = useMemo(() => createNodeTypes(testigos, hechos, documentos), [testigos, hechos, documentos]);
+  const edgeTypes = useMemo<EdgeTypes>(() => ({ labeled: LabeledEdge }), []);
 
   const handleMoveEnd = useMemo(() => {
     return (_: unknown, viewport: Viewport) => {
@@ -137,6 +144,7 @@ export default function FlowCanvas() {
         fitView
         proOptions={{ hideAttribution: true }}
         nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
         className="bg-zinc-950"
         onMoveEnd={handleMoveEnd}
       >

@@ -65,7 +65,7 @@ export function decorateEdge(edge: CustomEdge): CustomEdge {
   const tipo = edge.data?.tipo ?? 'sigue';
   const customLabel = typeof edge.data?.customLabel === 'string' ? edge.data.customLabel.trim() : '';
   const sourceAnswerText = typeof edge.data?.sourceAnswerText === 'string' ? edge.data.sourceAnswerText.trim() : '';
-  const autoAnswerLabel = sourceAnswerText ? `RESPUESTA: ${sourceAnswerText}` : '';
+  const autoAnswerLabel = sourceAnswerText ? `${getEdgeKindLabel(tipo)}\nRESPUESTA: ${sourceAnswerText}` : '';
   const label = customLabel.length > 0 ? customLabel : autoAnswerLabel || getEdgeKindLabel(tipo);
   const visual = EDGE_KIND_STYLES[tipo];
   const style: CSSProperties = {
@@ -76,11 +76,17 @@ export function decorateEdge(edge: CustomEdge): CustomEdge {
 
   return {
     ...edge,
-    type: 'default',
+    type: 'labeled',
     label,
     animated: visual.animated ?? false,
     style,
-    labelStyle: { fill: autoAnswerLabel ? '#facc15' : '#d4d4d8', fontSize: 12, fontWeight: 600 },
+    labelStyle: {
+      fill: autoAnswerLabel ? '#facc15' : '#d4d4d8',
+      fontSize: 12,
+      fontWeight: 600,
+      whiteSpace: 'pre-line',
+      textAlign: 'center',
+    },
     labelBgStyle: { fill: '#18181b', opacity: 0.92 },
     labelBgPadding: [8, 4],
     markerEnd: {
