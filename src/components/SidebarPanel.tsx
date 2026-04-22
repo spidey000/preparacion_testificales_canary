@@ -200,22 +200,22 @@ function TestigoCard({
   const [isExpanded, setIsExpanded] = useState(false);
 
   return (
-    <article className="group relative rounded-2xl border border-zinc-800 bg-zinc-950">
-      <div className="flex items-center gap-2 p-3">
-        <button
-          onClick={() => setIsExpanded(!isExpanded)}
-          className="flex w-full items-center gap-2 text-left"
-        >
+    <article className="group relative">
+      <button
+        onClick={() => setIsExpanded(!isExpanded)}
+        className="flex w-full items-start justify-between gap-2 px-0.5 py-1 text-left"
+      >
+        <div className="min-w-0 flex-1">
           <ColorChip label={testigo.nombre} color={testigo.color} />
-          <div className="min-w-0 flex-1">
-            <div className="text-xs text-zinc-500">{testigo.rolProcesal} · {nodesCount} nodos</div>
+          <div className="mt-0.5 pl-1 text-[11px] text-zinc-500">
+            {testigo.rolProcesal} · {nodesCount} nodo{nodesCount !== 1 ? 's' : ''}
           </div>
-          <ChevronDown size={14} className={`text-zinc-600 transition ${isExpanded ? 'rotate-180' : ''}`} />
-        </button>
-      </div>
+        </div>
+        <ChevronDown size={14} className={`mt-1 shrink-0 text-zinc-600 transition ${isExpanded ? 'rotate-180' : ''}`} />
+      </button>
 
       {isExpanded && (
-        <div className="space-y-3 border-t border-zinc-800/50 p-3">
+        <div className="mt-1 space-y-3 pl-3">
           <div>
             <FieldLabel>Nombre</FieldLabel>
             <DocumentInput
@@ -361,22 +361,22 @@ function HechoCard({
   const [isExpanded, setIsExpanded] = useState(false);
 
   return (
-    <article className="group relative rounded-2xl border border-zinc-800 bg-zinc-950">
-      <div className="flex items-center gap-2 p-3">
-        <button
-          onClick={() => setIsExpanded(!isExpanded)}
-          className="flex w-full items-center gap-2 text-left"
-        >
+    <article className="group relative">
+      <button
+        onClick={() => setIsExpanded(!isExpanded)}
+        className="flex w-full items-start justify-between gap-2 px-0.5 py-1 text-left"
+      >
+        <div className="min-w-0 flex-1">
           <ColorChip label={hecho.titulo} color={hecho.color} />
-          <div className="min-w-0 flex-1">
-            <div className="text-xs text-zinc-500">{hecho.cobertura} · {nodesCount} nodos</div>
+          <div className="mt-0.5 pl-1 text-[11px] text-zinc-500">
+            {hecho.cobertura} · {nodesCount} nodo{nodesCount !== 1 ? 's' : ''}
           </div>
-          <ChevronDown size={14} className={`text-zinc-600 transition ${isExpanded ? 'rotate-180' : ''}`} />
-        </button>
-      </div>
+        </div>
+        <ChevronDown size={14} className={`mt-1 shrink-0 text-zinc-600 transition ${isExpanded ? 'rotate-180' : ''}`} />
+      </button>
 
       {isExpanded && (
-        <div className="space-y-3 border-t border-zinc-800/50 p-3">
+        <div className="mt-1 space-y-3 pl-3">
           <div>
             <FieldLabel>Nombre</FieldLabel>
             <DocumentInput
@@ -1296,7 +1296,7 @@ export default function SidebarPanel({
             >
               <Plus size={14} /> Nuevo testigo
             </button>
-            <div className="space-y-2">
+            <div className="space-y-1">
               {testigos.map((testigo) => (
                 <TestigoCard
                   key={testigo.id}
@@ -1318,7 +1318,7 @@ export default function SidebarPanel({
             >
               <Plus size={14} /> Nuevo hecho
             </button>
-            <div className="space-y-2">
+            <div className="space-y-1">
               {hechos.map((hecho) => (
                 <HechoCard
                   key={hecho.id}
