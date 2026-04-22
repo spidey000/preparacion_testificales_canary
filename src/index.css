@@ -24,6 +24,16 @@
   }
 }
 
+@layer components {
+  .app-modal-overlay {
+    @apply fixed inset-0 flex items-center justify-center bg-black/70 p-4;
+  }
+
+  .app-modal-panel {
+    @apply flex h-[80vh] max-h-[80vh] min-h-0 w-full flex-col overflow-hidden rounded-[2rem] border bg-zinc-900 shadow-2xl;
+  }
+}
+
 #root {
   @apply min-h-screen;
 }

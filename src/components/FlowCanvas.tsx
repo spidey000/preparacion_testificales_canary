@@ -1,6 +1,7 @@
 import { Background, Controls, MiniMap, ReactFlow, type EdgeTypes, type NodeTypes, Handle, Position, type Viewport, useUpdateNodeInternals } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { useEffect, useMemo } from 'react';
+import { getReadableTextColor } from '../colorUtils';
 import { getDocumentLabel } from '../documentUtils';
 import LabeledEdge from './LabeledEdge';
 import { useStore } from '../store';
@@ -10,8 +11,23 @@ function toneForWitness(testigos: Testigo[], witnessId?: string) {
   return testigos.find((item) => item.id === witnessId)?.color ?? '#22c55e';
 }
 
+function toneForFact(hechos: Hecho[], factId?: string) {
+  return hechos.find((item) => item.id === factId)?.color ?? '#3b82f6';
+}
+
 function Badge({ children }: { children: React.ReactNode }) {
   return <span className="rounded-full bg-black/20 px-2 py-1 text-[10px] uppercase tracking-wide text-white/75">{children}</span>;
+}
+
+function ColorBadge({ children, color }: { children: React.ReactNode; color: string }) {
+  return (
+    <span
+      className="inline-flex max-w-full items-center rounded-full px-2 py-1 text-[10px] font-medium leading-none"
+      style={{ backgroundColor: color, color: getReadableTextColor(color) }}
+    >
+      <span className="truncate">{children}</span>
+    </span>
+  );
 }
 
 function NodeShell({ title, subtitle, accent, children }: { title: string; subtitle: string; accent: string; children?: React.ReactNode }) {
@@ -32,6 +48,7 @@ const createNodeTypes = (testigos: Testigo[], hechos: Hecho[], documentos: Docum
     const accent = toneForWitness(testigos, data.witnessId);
     const witnessLabel = testigos.find((item) => item.id === data.witnessId)?.nombre;
     const factLabel = hechos.find((item) => item.id === data.factId)?.titulo;
+    const factColor = toneForFact(hechos, data.factId);
     const answers = (data.answers ?? []) as PreguntaRespuesta[];
 
     useEffect(() => {
@@ -44,8 +61,14 @@ const createNodeTypes = (testigos: Testigo[], hechos: Hecho[], documentos: Docum
         <div className="mb-2 text-[10px] uppercase tracking-[0.28em] text-zinc-300">Pregunta</div>
         <div className="text-sm font-semibold leading-5 text-zinc-50 whitespace-pre-wrap break-words">{data.texto || data.label || 'Pregunta'}</div>
         <div className="mt-3 space-y-1 text-[11px] text-zinc-300">
-          <div className="rounded-xl bg-black/20 px-2 py-1">Testigo: {witnessLabel || 'Sin asignar'}</div>
-          <div className="rounded-xl bg-black/20 px-2 py-1">Hecho: {factLabel || 'Sin asignar'}</div>
+          <div className="flex items-center gap-2 rounded-xl bg-black/20 px-2 py-1">
+            <span>Testigo:</span>
+            <ColorBadge color={accent}>{witnessLabel || 'Sin asignar'}</ColorBadge>
+          </div>
+          <div className="flex items-center gap-2 rounded-xl bg-black/20 px-2 py-1">
+            <span>Hecho:</span>
+            <ColorBadge color={factColor}>{factLabel || 'Sin asignar'}</ColorBadge>
+          </div>
           {data.topicLabel ? <div className="rounded-xl bg-black/20 px-2 py-1">Tema: {data.topicLabel}</div> : null}
         </div>
         <div className="mt-3 flex flex-wrap gap-2">
@@ -92,11 +115,23 @@ const createNodeTypes = (testigos: Testigo[], hechos: Hecho[], documentos: Docum
       </NodeShell>
     );
   },
-  hecho: ({ data }) => (
-    <NodeShell title={data.label || 'Hecho'} subtitle="Hecho a probar" accent="#3b82f6">
-      {data.coberturaNode ? <div className="mt-3"><Badge>{data.coberturaNode}</Badge></div> : null}
-    </NodeShell>
-  ),
+  hecho: ({ data }) => {
+    const accent = toneForFact(hechos, data.factId);
+    const factLabel = (hechos.find((item) => item.id === data.factId)?.titulo ?? data.label) || 'Hecho';
+    return (
+      <NodeShell title="Hecho" subtitle="Hecho a probar" accent={accent}>
+        <div className="mt-3">
+          <span
+            className="inline-flex max-w-full rounded-2xl px-3 py-2 text-sm font-semibold leading-tight"
+            style={{ backgroundColor: accent, color: getReadableTextColor(accent) }}
+          >
+            <span className="truncate">{factLabel}</span>
+          </span>
+        </div>
+        {data.coberturaNode ? <div className="mt-3"><Badge>{data.coberturaNode}</Badge></div> : null}
+      </NodeShell>
+    );
+  },
   tema: ({ data }) => (
     <NodeShell title={data.label || 'Tema'} subtitle="Tema" accent="#8b5cf6">
       {data.notes ? <p className="mt-3 text-sm text-zinc-200">{data.notes}</p> : null}

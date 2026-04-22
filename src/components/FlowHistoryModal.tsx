@@ -1,5 +1,6 @@
 import { History, RotateCcw, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import ModalShell from './ModalShell';
 import { listFlowSnapshotsByFlowId } from '../flowRepository';
 import { useStore } from '../store';
 import type { FlowSnapshotSummary } from '../types';
@@ -41,8 +42,7 @@ export default function FlowHistoryModal({ isOpen, onClose, flowId, flowTitle }:
   if (!isOpen || !flowId) return null;
 
   return (
-    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/70 p-4">
-      <div className="flex max-h-[80vh] w-full max-w-2xl flex-col overflow-hidden rounded-[2rem] border border-zinc-800 bg-zinc-900 shadow-2xl">
+    <ModalShell isOpen={isOpen} onClose={onClose} zIndexClassName="z-[110]" panelClassName="max-w-2xl border-zinc-800">
         <div className="flex items-center justify-between border-b border-zinc-800 px-6 py-5">
           <div className="flex items-center gap-3">
             <div className="rounded-full bg-zinc-800 p-2 text-zinc-200">
@@ -106,7 +106,6 @@ export default function FlowHistoryModal({ isOpen, onClose, flowId, flowTitle }:
             })}
           </div>
         </div>
-      </div>
-    </div>
+    </ModalShell>
   );
 }

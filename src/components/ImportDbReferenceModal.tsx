@@ -1,5 +1,6 @@
 import { Copy, Download, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import ModalShell from './ModalShell';
 import {
   buildDbFileName,
   buildExampleDbExport,
@@ -24,8 +25,7 @@ export default function ImportDbReferenceModal({ isOpen, onClose }: { isOpen: bo
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/70 p-4">
-      <div className="flex h-[80vh] w-full max-w-6xl flex-col overflow-hidden rounded-[2rem] border border-zinc-800 bg-zinc-900 shadow-2xl">
+    <ModalShell isOpen={isOpen} onClose={onClose} zIndexClassName="z-[120]" panelClassName="max-w-6xl border-zinc-800">
         <div className="flex items-start justify-between gap-4 border-b border-zinc-800 px-6 py-5">
           <div>
             <div className="text-xs uppercase tracking-[0.25em] text-zinc-500">Referencia de importacion</div>
@@ -78,7 +78,6 @@ export default function ImportDbReferenceModal({ isOpen, onClose }: { isOpen: bo
             className="h-full w-full resize-none rounded-[2rem] border border-zinc-800 bg-zinc-950 p-5 font-mono text-xs leading-6 text-zinc-200 outline-none"
           />
         </div>
-      </div>
-    </div>
+    </ModalShell>
   );
 }

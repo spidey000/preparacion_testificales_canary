@@ -1,0 +1,378 @@
+{
+  "app": "testificales",
+  "schemaVersion": 2,
+  "exportedAt": "2024-05-24T12:00:00.000Z",
+  "flujos": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440001",
+      "titulo": "Estrategia Testifical - Huelga Skyway Barajas",
+      "mode": "preparacion",
+      "testigos": [
+        {
+          "id": "w-owens",
+          "nombre": "D. Jon William Owens (Jefe Ops AENA)",
+          "parteQuePropone": "actora",
+          "rolProcesal": "tercero",
+          "credibilidadEstimada": "Alta",
+          "color": "hsl(200 70% 58%)"
+        },
+        {
+          "id": "w-fliquete",
+          "nombre": "D. Marcos Fliquete Gallego (Dir. Ops Skyway)",
+          "parteQuePropone": "actora",
+          "rolProcesal": "contrario",
+          "credibilidadEstimada": "Baja",
+          "color": "hsl(350 70% 58%)"
+        },
+        {
+          "id": "w-martinez",
+          "nombre": "Dña. Raquel Mercedes Martínez Arnaiz (Dir. General Skyway)",
+          "parteQuePropone": "actora",
+          "rolProcesal": "contrario",
+          "credibilidadEstimada": "Baja",
+          "color": "hsl(350 70% 58%)"
+        }
+      ],
+      "hechos": [
+        {
+          "id": "f-conocimiento",
+          "titulo": "Conocimiento de la Resolución de Servicios Mínimos",
+          "cobertura": "cubierto",
+          "priority": "alta"
+        },
+        {
+          "id": "f-negativa",
+          "titulo": "Negativa de la empresa a identificar vuelos protegidos",
+          "cobertura": "muy-cubierto",
+          "priority": "alta"
+        },
+        {
+          "id": "f-sacta",
+          "titulo": "Uso de SACTA para obligar a operar el 100% de vuelos",
+          "cobertura": "cubierto",
+          "priority": "alta"
+        },
+        {
+          "id": "f-esquirolaje",
+          "titulo": "Esquirolaje interno (sustitución de R. Gimeno por directivo)",
+          "cobertura": "cubierto",
+          "priority": "alta"
+        },
+        {
+          "id": "f-impacto",
+          "titulo": "Afección nula de la huelga en la operatividad del aeropuerto",
+          "cobertura": "cubierto",
+          "priority": "media"
+        }
+      ],
+      "documentos": [
+        {
+          "id": "doc-resolucion"
+        },
+        {
+          "id": "doc-listado-aena"
+        },
+        {
+          "id": "doc-correos"
+        },
+        {
+          "id": "doc-cuadrantes"
+        }
+      ],
+      "nodes": [
+        {
+          "id": "n-tema-aena",
+          "type": "tema",
+          "position": { "x": 100, "y": 100 },
+          "data": {
+            "type": "tema",
+            "label": "Interrogatorio AENA: Listados y Operatividad",
+            "notes": "Demostrar que AENA facilitó los datos y que la huelga fue neutralizada al 100% sin cancelaciones."
+          }
+        },
+        {
+          "id": "n-q-owens-1",
+          "type": "pregunta",
+          "position": { "x": 100, "y": 250 },
+          "data": {
+            "type": "pregunta",
+            "label": "Provisión de Listado a Skyway",
+            "texto": "¿Proporcionó AENA a Skyway el listado completo de vuelos programados para los días 10 a 14 de diciembre?",
+            "finalidad": "Acreditar que la empresa disponía de la información base para cribar los vuelos.",
+            "expectedAnswer": "Sí, es el procedimiento habitual.",
+            "questionStyle": "cerrada",
+            "riskLevel": "bajo",
+            "priority": "alta",
+            "witnessId": "w-owens",
+            "factId": "f-negativa"
+          }
+        },
+        {
+          "id": "n-q-owens-2",
+          "type": "pregunta",
+          "position": { "x": 100, "y": 400 },
+          "data": {
+            "type": "pregunta",
+            "label": "Petición de Criba a AENA",
+            "texto": "¿Solicitó Skyway en algún momento que AENA aplicara los porcentajes de la Resolución ministerial al listado de vuelos?",
+            "finalidad": "Acreditar la pasividad y mala fe de Skyway.",
+            "expectedAnswer": "No.",
+            "questionStyle": "cerrada",
+            "riskLevel": "medio",
+            "priority": "alta",
+            "witnessId": "w-owens",
+            "factId": "f-negativa"
+          }
+        },
+        {
+          "id": "n-q-owens-3",
+          "type": "pregunta",
+          "position": { "x": 100, "y": 550 },
+          "data": {
+            "type": "pregunta",
+            "label": "Impacto en Aeropuerto",
+            "texto": "¿Registró AENA alguna incidencia operativa o cancelación de vuelos imputable a la huelga del SDP durante esos días?",
+            "finalidad": "Probar que la huelga fue anulada en la práctica.",
+            "expectedAnswer": "No, se operó con total normalidad.",
+            "questionStyle": "fijacion",
+            "riskLevel": "bajo",
+            "priority": "alta",
+            "witnessId": "w-owens",
+            "factId": "f-impacto"
+          }
+        },
+        {
+          "id": "n-tema-fliquete",
+          "type": "tema",
+          "position": { "x": 450, "y": 100 },
+          "data": {
+            "type": "tema",
+            "label": "Interrogatorio Ops Skyway: SACTA y Turnos",
+            "notes": "Demostrar que forzaron operar todos los vuelos vía SACTA y que realizaron esquirolaje interno."
+          }
+        },
+        {
+          "id": "n-q-fliquete-1",
+          "type": "pregunta",
+          "position": { "x": 450, "y": 250 },
+          "data": {
+            "type": "pregunta",
+            "label": "Asignación en SACTA",
+            "texto": "¿Es correcto que los vuelos previstos en el sistema SACTA se asignan automáticamente a los operadores en tiempo real?",
+            "finalidad": "Explicar el automatismo de la asignación de cargas de trabajo.",
+            "expectedAnswer": "Sí.",
+            "questionStyle": "cerrada",
+            "riskLevel": "bajo",
+            "priority": "alta",
+            "witnessId": "w-fliquete",
+            "factId": "f-sacta"
+          }
+        },
+        {
+          "id": "n-q-fliquete-2",
+          "type": "pregunta",
+          "position": { "x": 450, "y": 400 },
+          "data": {
+            "type": "pregunta",
+            "label": "Ausencia de filtro en SACTA",
+            "texto": "¿Introdujo la dirección de Operaciones algún filtro en SACTA para excluir los vuelos no protegidos por los servicios mínimos?",
+            "finalidad": "Demostrar la obligación encubierta de operar el 100%.",
+            "expectedAnswer": "No, se atiende todo lo que entra al sistema.",
+            "questionStyle": "fijacion",
+            "riskLevel": "medio",
+            "priority": "alta",
+            "witnessId": "w-fliquete",
+            "factId": "f-sacta"
+          }
+        },
+        {
+          "id": "n-r-fliquete-2",
+          "type": "riesgo",
+          "position": { "x": 750, "y": 400 },
+          "data": {
+            "type": "riesgo",
+            "label": "Excusa técnica AENA",
+            "severity": "medio",
+            "mitigation": "Recordar que Skyway es prestataria del servicio y su obligación legal era adoptar medidas, no delegar responsabilidades sin intentar soluciones."
+          }
+        },
+        {
+          "id": "n-q-fliquete-3",
+          "type": "pregunta",
+          "position": { "x": 450, "y": 550 },
+          "data": {
+            "type": "pregunta",
+            "label": "Esquirolaje baja Ricard Gimeno",
+            "texto": "Consta en los cuadrantes que ante la baja del trabajador convocado como servicios mínimos, Sr. Gimeno, se asignó su turno a D. Luis Felipe Díaz y Dña. Elena Ordoñez, en su día libre. ¿Por qué no se activó al personal de guardia programado?",
+            "finalidad": "Probar el esquirolaje interno para anular el efecto de la huelga.",
+            "expectedAnswer": "Evasiva sobre necesidades del servicio.",
+            "questionStyle": "impugnacion",
+            "riskLevel": "alto",
+            "priority": "alta",
+            "witnessId": "w-fliquete",
+            "factId": "f-esquirolaje"
+          }
+        },
+        {
+          "id": "n-doc-cuadrantes",
+          "type": "documento",
+          "position": { "x": 750, "y": 550 },
+          "data": {
+            "type": "documento",
+            "label": "Doc. 33 y 34 (Cuadrantes)",
+            "documentId": "doc-cuadrantes",
+            "description": "Planillas que demuestran el cambio de programación para cubrir bajas con personal fuera de guardia."
+          }
+        },
+        {
+          "id": "n-tema-martinez",
+          "type": "tema",
+          "position": { "x": 900, "y": 100 },
+          "data": {
+            "type": "tema",
+            "label": "Interrogatorio Dir. General: Política y Mala Fe",
+            "notes": "Acotar la responsabilidad directiva en la negativa a cumplir la resolución ministerial."
+          }
+        },
+        {
+          "id": "n-q-martinez-1",
+          "type": "pregunta",
+          "position": { "x": 900, "y": 250 },
+          "data": {
+            "type": "pregunta",
+            "label": "Recepción Resolución",
+            "texto": "¿Tuvo conocimiento la dirección de Skyway de la Resolución del Ministerio de Transportes del 9 de diciembre fijando servicios mínimos?",
+            "finalidad": "Fijar el conocimiento de la obligación legal.",
+            "expectedAnswer": "Sí.",
+            "questionStyle": "cerrada",
+            "riskLevel": "bajo",
+            "priority": "alta",
+            "witnessId": "w-martinez",
+            "factId": "f-conocimiento"
+          }
+        },
+        {
+          "id": "n-q-martinez-2",
+          "type": "pregunta",
+          "position": { "x": 900, "y": 400 },
+          "data": {
+            "type": "pregunta",
+            "label": "Negativa deliberada al Comité",
+            "texto": "¿Fue decisión suya o de su equipo directivo responder a las múltiples peticiones del Comité alegando que Skyway 'no elabora ni dispone' del listado de vuelos protegidos?",
+            "finalidad": "Responsabilizar a la Dirección de la inacción y evasivas.",
+            "expectedAnswer": "Nos basamos en que dependemos de AENA.",
+            "questionStyle": "abierta",
+            "riskLevel": "alto",
+            "priority": "alta",
+            "witnessId": "w-martinez",
+            "factId": "f-negativa"
+          }
+        },
+        {
+          "id": "n-doc-correos",
+          "type": "documento",
+          "position": { "x": 1200, "y": 400 },
+          "data": {
+            "type": "documento",
+            "label": "Docs. 37-53 (Correos Evasivas)",
+            "documentId": "doc-correos",
+            "description": "Comunicaciones de Skyway negando la información requerida por los trabajadores."
+          }
+        },
+        {
+          "id": "n-q-martinez-3",
+          "type": "pregunta",
+          "position": { "x": 900, "y": 550 },
+          "data": {
+            "type": "pregunta",
+            "label": "Falta de Impugnación",
+            "texto": "Si consideraban materialmente imposible aplicar los servicios mínimos dictados, ¿por qué Skyway no impugnó la Resolución ni solicitó aclaración al Ministerio antes del inicio de la huelga?",
+            "finalidad": "Desmontar la excusa de 'imposibilidad técnica' demostrando pasividad dolosa.",
+            "expectedAnswer": "Falta de tiempo u otra evasiva.",
+            "questionStyle": "impugnacion",
+            "riskLevel": "medio",
+            "priority": "alta",
+            "witnessId": "w-martinez",
+            "factId": "f-negativa"
+          }
+        }
+      ],
+      "edges": [
+        {
+          "id": "e-tema1-q1",
+          "source": "n-tema-aena",
+          "target": "n-q-owens-1",
+          "data": { "tipo": "sigue", "priority": "alta" }
+        },
+        {
+          "id": "e-q1-q2",
+          "source": "n-q-owens-1",
+          "target": "n-q-owens-2",
+          "data": { "tipo": "sigue", "priority": "alta" }
+        },
+        {
+          "id": "e-q2-q3",
+          "source": "n-q-owens-2",
+          "target": "n-q-owens-3",
+          "data": { "tipo": "sigue", "priority": "alta" }
+        },
+        {
+          "id": "e-tema2-q4",
+          "source": "n-tema-fliquete",
+          "target": "n-q-fliquete-1",
+          "data": { "tipo": "sigue", "priority": "alta" }
+        },
+        {
+          "id": "e-q4-q5",
+          "source": "n-q-fliquete-1",
+          "target": "n-q-fliquete-2",
+          "data": { "tipo": "sigue", "priority": "alta" }
+        },
+        {
+          "id": "e-q5-r1",
+          "source": "n-q-fliquete-2",
+          "target": "n-r-fliquete-2",
+          "data": { "tipo": "conecta_riesgo", "priority": "alta" }
+        },
+        {
+          "id": "e-q5-q6",
+          "source": "n-q-fliquete-2",
+          "target": "n-q-fliquete-3",
+          "data": { "tipo": "sigue", "priority": "alta" }
+        },
+        {
+          "id": "e-q6-doc1",
+          "source": "n-q-fliquete-3",
+          "target": "n-doc-cuadrantes",
+          "data": { "tipo": "conecta_documento", "priority": "alta" }
+        },
+        {
+          "id": "e-tema3-q7",
+          "source": "n-tema-martinez",
+          "target": "n-q-martinez-1",
+          "data": { "tipo": "sigue", "priority": "alta" }
+        },
+        {
+          "id": "e-q7-q8",
+          "source": "n-q-martinez-1",
+          "target": "n-q-martinez-2",
+          "data": { "tipo": "sigue", "priority": "alta" }
+        },
+        {
+          "id": "e-q8-doc2",
+          "source": "n-q-martinez-2",
+          "target": "n-doc-correos",
+          "data": { "tipo": "conecta_documento", "priority": "alta" }
+        },
+        {
+          "id": "e-q8-q9",
+          "source": "n-q-martinez-2",
+          "target": "n-q-martinez-3",
+          "data": { "tipo": "sigue", "priority": "alta" }
+        }
+      ],
+      "createdAt": "2024-05-24T12:00:00.000Z",
+      "updatedAt": "2024-05-24T12:00:00.000Z"
+    }
+  ]
+}

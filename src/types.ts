@@ -41,6 +41,7 @@ export interface Hecho {
   descripcion?: string;
   cobertura: Cobertura;
   priority: Priority;
+  color: string;
 }
 
 export interface Documento {

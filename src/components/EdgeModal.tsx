@@ -70,7 +70,7 @@ export default function EdgeModal() {
               value={typeof formData.customLabel === 'string' ? formData.customLabel : ''}
               onChange={(e) => setFormData({ ...formData, customLabel: e.target.value })}
             />
-            <p className="mt-2 text-xs text-zinc-500">Si lo dejas vacio, se usara la etiqueta automatica de la respuesta o, si no existe, la del tipo de conexion.</p>
+            <p className="mt-2 text-xs text-zinc-500">Si lo dejas vacio, se usara la etiqueta automatica. En conexiones que salen de una respuesta se mostrara primero el tipo de conexion y debajo la respuesta.</p>
           </div>
 
           <div>

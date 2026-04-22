@@ -1,8 +1,9 @@
+import { buildUniqueFactColor } from './colorUtils';
 import type { Flujo, Cobertura, EdgeKind, NodeKind, ParteDocumento, PreguntaBase, PreguntaRespuesta, Priority, QuestionStyle, RiskLevel, SessionMode } from './types';
 
 export const DB_FILE_EXTENSION = '.json';
 export const DB_APP_ID = 'testificales';
-export const DB_SCHEMA_VERSION = 3;
+export const DB_SCHEMA_VERSION = 4;
 
 const NODE_KINDS: NodeKind[] = ['pregunta', 'riesgo', 'documento', 'hecho', 'tema', 'cierre'];
 const COVERAGE_VALUES: Cobertura[] = ['no-cubierto', 'debil', 'cubierto', 'muy-cubierto'];
@@ -123,6 +124,7 @@ const DEFAULT_TESTIGO_PARTE: 'actora' | 'demandada' | 'tercero' = 'actora';
 const DEFAULT_TESTIGO_ROL: 'proponente' | 'contrario' = 'proponente';
 const DEFAULT_TESTIGO_CREDIBILIDAD = 'Media';
 const DEFAULT_TESTIGO_COLOR = 'hsl(200 70% 58%)';
+const DEFAULT_HECHO_COLOR = 'hsl(220 70% 58%)';
 
 const NODE_LABEL_BY_KIND: Record<NodeKind, string> = {
   pregunta: 'Nueva pregunta',
@@ -514,6 +516,7 @@ function normalizeFlow(flujoValue: unknown, index: number, adjustments: ImportAd
     };
   });
 
+  const usedFactColors: string[] = [];
   const hechos = hechosSource.map((item, factIndex) => {
     const factPath = `${flowPath}.hechos[${factIndex}]`;
     const fact = isRecord(item) ? item : {};
@@ -521,12 +524,20 @@ function normalizeFlow(flujoValue: unknown, index: number, adjustments: ImportAd
       recordAdjustment(adjustments, 'hecho', factPath, item, '{}', 'El hecho no era un objeto y se reemplazo por valores por defecto.');
     }
 
+    const rawColor = ensureRequiredString(fact.color, DEFAULT_HECHO_COLOR, adjustments, 'hecho.color', `${factPath}.color`, 'Se reemplazo por un color por defecto.');
+    const color = buildUniqueFactColor(usedFactColors, rawColor);
+    if (color !== rawColor) {
+      recordAdjustment(adjustments, 'hecho.color', `${factPath}.color`, rawColor, color, 'El color del hecho se ajusto para que no coincidiera con otro hecho.');
+    }
+    usedFactColors.push(color);
+
     return {
       id: ensureUniqueId(fact.id, factIds, adjustments, 'hecho.id', `${factPath}.id`, 'Hecho invalido'),
       titulo: ensureRequiredString(fact.titulo, `Hecho ${factIndex + 1}`, adjustments, 'hecho.titulo', `${factPath}.titulo`, 'Se reemplazo por un titulo por defecto.'),
       cobertura: ensureEnum(fact.cobertura, COVERAGE_VALUES, DEFAULT_COVERAGE, adjustments, 'hecho.cobertura', `${factPath}.cobertura`),
       priority: ensureEnum(fact.priority, PRIORITIES, DEFAULT_PRIORITY, adjustments, 'hecho.priority', `${factPath}.priority`),
       descripcion: ensureOptionalString(fact.descripcion, adjustments, 'hecho.descripcion', `${factPath}.descripcion`),
+      color,
     };
   });
 
@@ -919,6 +930,7 @@ export function buildReferencePrompt() {
     '- testigo.rolProcesal: proponente',
     '- testigo.credibilidadEstimada: Media',
     '- testigo.color: hsl(200 70% 58%)',
+    '- hecho.color: hsl(220 70% 58%)',
     '- hecho.cobertura: debil',
     '- hecho.priority: media',
     '- pregunta.questionStyle: abierta',
@@ -1056,31 +1068,30 @@ export function isJsonPromptSafeLines(value: unknown) {
 }
 
 export function buildTemplateDbExport() {
-  return buildDbExport([
-    {
-      id: crypto.randomUUID(),
-      titulo: 'Plantilla de importacion',
-      mode: 'preparacion',
-      nodes: [],
-      edges: [],
-      testigos: [],
-      hechos: [],
-      documentos: [],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    },
-  ]);
+  const templateFlow: Flujo = {
+    id: crypto.randomUUID(),
+    titulo: 'Plantilla de importacion',
+    mode: 'preparacion',
+    nodes: [],
+    edges: [],
+    testigos: [],
+    hechos: [],
+    documentos: [],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+
+  return buildDbExport([templateFlow]);
 }
 
 export function buildExampleDbExport() {
-  return buildDbExport([
-    {
-      id: '2df8b0c2-2b74-4db0-931a-2be2f3b3b8e4',
-      titulo: 'Contrainterrogatorio del testigo principal',
-      mode: 'preparacion',
-      createdAt: '2026-04-21T12:00:00.000Z',
-      updatedAt: '2026-04-21T12:00:00.000Z',
-      testigos: [
+  const exampleFlow: Flujo = {
+    id: '2df8b0c2-2b74-4db0-931a-2be2f3b3b8e4',
+    titulo: 'Contrainterrogatorio del testigo principal',
+    mode: 'preparacion',
+    createdAt: '2026-04-21T12:00:00.000Z',
+    updatedAt: '2026-04-21T12:00:00.000Z',
+    testigos: [
         {
           id: '7e3fa4bd-1c01-4a74-b863-8208c1e76d5f',
           nombre: 'Juan Perez',
@@ -1107,14 +1118,15 @@ export function buildExampleDbExport() {
           notasTacticas: 'Confirmar fechas de recepcion de documentos',
           color: 'hsl(210 70% 58%)',
         },
-      ],
-      hechos: [
+    ],
+    hechos: [
         {
           id: 'f7c09035-4b30-40aa-85e3-b980cbc32fd2',
           titulo: 'La entrega se realizo fuera de plazo',
           descripcion: 'Debe acreditarse el retraso y su conocimiento previo.',
           cobertura: 'debil',
           priority: 'alta',
+          color: 'hsl(32 70% 58%)',
         },
         {
           id: '0678692b-9c0a-43ff-b8c3-4dba8e0bce33',
@@ -1122,9 +1134,10 @@ export function buildExampleDbExport() {
           descripcion: 'Se apoya en correos previos a la fecha limite.',
           cobertura: 'cubierto',
           priority: 'alta',
+          color: 'hsl(232 70% 58%)',
         },
-      ],
-      documentos: [
+    ],
+    documentos: [
         {
           id: '14ea4c51-334e-49b4-b779-3f5b1555e0f4',
           nombre: 'Contrato firmado',
@@ -1135,8 +1148,8 @@ export function buildExampleDbExport() {
           referencia: 'Contrato de obra de 10/01/2025',
           notas: 'Usar para fijar la fecha comprometida.',
         },
-      ],
-      nodes: [
+    ],
+    nodes: [
         {
           id: '59ae24ef-fc13-4f19-9dd8-eb8e14e2c9b2',
           type: 'tema',
@@ -1215,8 +1228,8 @@ export function buildExampleDbExport() {
             mitigation: 'Cerrar la pregunta y usar documentos de apoyo.',
           },
         },
-      ],
-      edges: [
+    ],
+    edges: [
         {
           id: 'ec048768-a186-4163-a1bb-417f5eddd062',
           source: '59ae24ef-fc13-4f19-9dd8-eb8e14e2c9b2',
@@ -1254,7 +1267,8 @@ export function buildExampleDbExport() {
             priority: 'media',
           },
         },
-      ],
-    },
-  ]);
+    ],
+  };
+
+  return buildDbExport([exampleFlow]);
 }

@@ -1,5 +1,6 @@
 import { addEdge, applyEdgeChanges, applyNodeChanges, type Connection, type EdgeChange, type NodeChange } from '@xyflow/react';
 import { create } from 'zustand';
+import { buildRandomAccentColor, buildUniqueFactColor, normalizeColorValue } from './colorUtils';
 import { getDocumentLabel } from './documentUtils';
 import { decorateEdge, getEdgeKindLabel, inferEdgeKind } from './edgeRules';
 import { deleteFlowById, getFlowById, getFlowSnapshot, listFlowSummariesByUpdatedAt, saveFlow, saveFlows } from './flowRepository';
@@ -8,11 +9,26 @@ import type { CustomEdge, CustomEdgeData, CustomNode, CustomNodeData, Documento,
 
 type SaveState = 'idle' | 'saving' | 'saved';
 
-const randomColor = () => `hsl(${Math.floor(Math.random() * 360)} 70% 58%)`;
+function normalizeWitnessColor(color: string | undefined, fallback = buildRandomAccentColor()) {
+  return normalizeColorValue(color, fallback);
+}
 
-function normalizeWitnessColor(color: string | undefined, fallback = randomColor()) {
-  if (!color?.trim()) return fallback;
-  return color.trim();
+function normalizeFactColor(color: string | undefined, hechos: Hecho[], currentFactId?: string) {
+  return buildUniqueFactColor(
+    hechos.filter((hecho) => hecho.id !== currentFactId).map((hecho) => hecho.color),
+    normalizeColorValue(color, buildRandomAccentColor()),
+  );
+}
+
+function normalizeFacts(hechos: Hecho[] | undefined) {
+  if (!hechos?.length) return [];
+
+  const usedColors: string[] = [];
+  return hechos.map((hecho) => {
+    const color = buildUniqueFactColor(usedColors, hecho.color);
+    usedColors.push(color);
+    return { ...hecho, color };
+  });
 }
 
 const createBaseFlow = (titulo: string): Flujo => ({
@@ -224,7 +240,7 @@ export const useStore = create<Store>((set, get) => ({
       nodes: actual?.nodes ?? [],
       edges: normalizeEdges(actual?.edges, actual?.nodes ?? []),
       testigos: actual?.testigos ?? [],
-      hechos: actual?.hechos ?? [],
+      hechos: normalizeFacts(actual?.hechos),
       documentos: actual?.documentos ?? [],
       preguntas: actual?.preguntas ?? [],
       selectedEdgeId: null,
@@ -261,7 +277,7 @@ export const useStore = create<Store>((set, get) => ({
       nodes: actual?.nodes ?? [],
       edges: normalizeEdges(actual?.edges, actual?.nodes ?? []),
       testigos: actual?.testigos ?? [],
-      hechos: actual?.hechos ?? [],
+      hechos: normalizeFacts(actual?.hechos),
       documentos: actual?.documentos ?? [],
       preguntas: actual?.preguntas ?? [],
       selectedNodeId: null,
@@ -278,7 +294,7 @@ export const useStore = create<Store>((set, get) => ({
       nodes: flujo.nodes,
       edges: normalizeEdges(flujo.edges, flujo.nodes),
       testigos: flujo.testigos,
-      hechos: flujo.hechos,
+      hechos: normalizeFacts(flujo.hechos),
       documentos: flujo.documentos ?? [],
       preguntas: flujo.preguntas ?? [],
       selectedNodeId: null,
@@ -512,14 +528,20 @@ export const useStore = create<Store>((set, get) => ({
 
   agregarHecho: (payload) => {
     set((state) => ({
-      hechos: [...state.hechos, { id: crypto.randomUUID(), ...payload }],
+      hechos: [...state.hechos, { id: crypto.randomUUID(), ...payload, color: normalizeFactColor(payload.color, state.hechos) }],
       saveState: 'idle',
     }));
   },
 
   updateHecho: (id, data) => {
     set((state) => ({
-      hechos: state.hechos.map((hecho) => (hecho.id === id ? { ...hecho, ...data } : hecho)),
+      hechos: state.hechos.map((hecho) => (hecho.id === id
+        ? {
+            ...hecho,
+            ...data,
+            color: data.color !== undefined ? normalizeFactColor(data.color, state.hechos, id) : hecho.color,
+          }
+        : hecho)),
       saveState: 'idle',
     }));
   },
@@ -768,7 +790,7 @@ export const useStore = create<Store>((set, get) => ({
       nodes: current?.nodes ?? state.nodes,
       edges: current ? normalizeEdges(current.edges, current.nodes) : state.edges,
       testigos: current?.testigos ?? state.testigos,
-      hechos: current?.hechos ?? state.hechos,
+      hechos: current ? normalizeFacts(current.hechos) : state.hechos,
       documentos: current?.documentos ?? state.documentos,
       preguntas: current?.preguntas ?? state.preguntas,
       selectedNodeId,
@@ -808,7 +830,7 @@ export const useStore = create<Store>((set, get) => ({
       nodes: restored.nodes,
       edges: normalizeEdges(restored.edges, restored.nodes),
       testigos: restored.testigos,
-      hechos: restored.hechos,
+      hechos: normalizeFacts(restored.hechos),
       documentos: restored.documentos ?? [],
       preguntas: restored.preguntas ?? [],
       selectedNodeId: null,

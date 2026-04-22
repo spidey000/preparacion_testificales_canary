@@ -29,6 +29,16 @@ function ToolbarButton({ label, onClick, icon: Icon }: { label: string; onClick:
   );
 }
 
+const DEFAULT_SIDEBAR_WIDTH = 300;
+const SIDEBAR_MIN_WIDTH_RATIO = 0.1;
+const SIDEBAR_MAX_WIDTH_RATIO = 0.4;
+
+function clampSidebarWidth(width: number, viewportWidth = window.innerWidth) {
+  const minWidth = viewportWidth * SIDEBAR_MIN_WIDTH_RATIO;
+  const maxWidth = viewportWidth * SIDEBAR_MAX_WIDTH_RATIO;
+  return Math.min(Math.max(width, minWidth), maxWidth);
+}
+
 export default function App() {
   const {
     flujos,
@@ -53,8 +63,10 @@ export default function App() {
 
   const didInit = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const sidebarResizeRef = useRef<{ pointerId: number; startX: number; startWidth: number } | null>(null);
   const [isReferenceOpen, setIsReferenceOpen] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(() => clampSidebarWidth(DEFAULT_SIDEBAR_WIDTH));
   const [importResult, setImportResult] = useState<{
     importedCount: number;
     adjustments: ImportAdjustment[];
@@ -75,6 +87,42 @@ export default function App() {
     }, 500);
     return () => window.clearTimeout(timeout);
   }, [flujoActualId, nodes, edges, testigos, hechos, documentos, preguntas, saveState, guardarFlujo]);
+
+  useEffect(() => {
+    const handlePointerMove = (event: PointerEvent) => {
+      const resizeState = sidebarResizeRef.current;
+      if (!resizeState) return;
+
+      const nextWidth = resizeState.startWidth + (event.clientX - resizeState.startX);
+      setSidebarWidth(clampSidebarWidth(nextWidth));
+    };
+
+    const stopResize = (event?: PointerEvent) => {
+      if (!sidebarResizeRef.current) return;
+      if (event && sidebarResizeRef.current.pointerId !== event.pointerId) return;
+      sidebarResizeRef.current = null;
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
+    };
+
+    const handleWindowResize = () => {
+      setSidebarWidth((currentWidth) => clampSidebarWidth(currentWidth));
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', stopResize);
+    window.addEventListener('pointercancel', stopResize);
+    window.addEventListener('resize', handleWindowResize);
+
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', stopResize);
+      window.removeEventListener('pointercancel', stopResize);
+      window.removeEventListener('resize', handleWindowResize);
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
+    };
+  }, []);
 
   const flujoActual = useMemo(() => flujos.find((item) => item.id === flujoActualId) ?? null, [flujos, flujoActualId]);
 
@@ -177,9 +225,20 @@ export default function App() {
     console.groupEnd();
   }
 
+  const handleSidebarResizeStart = (event: React.PointerEvent<HTMLButtonElement>) => {
+    sidebarResizeRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startWidth: sidebarWidth,
+    };
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = 'col-resize';
+    event.preventDefault();
+  };
+
   return (
     <div className="flex h-screen bg-zinc-950 text-zinc-100">
-      <SidebarPanel />
+      <SidebarPanel width={sidebarWidth} onResizeStart={handleSidebarResizeStart} />
 
       <main className="relative flex min-w-0 flex-1 flex-col">
         <header className="flex flex-wrap items-center gap-3 border-b border-zinc-800 bg-zinc-950/85 px-6 py-4 backdrop-blur">

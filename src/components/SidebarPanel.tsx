@@ -1,5 +1,6 @@
-import { AlertTriangle, ChevronDown, ChevronRight, FileQuestion, FileText, MessageSquare, Plus, Target, Trash2, Upload, X } from 'lucide-react';
+import { AlertTriangle, ChevronDown, ChevronRight, Download, FileQuestion, FileText, MessageSquare, Plus, Target, Trash2, Upload, X } from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
+import { buildRandomAccentColor, buildUniqueFactColor, getReadableTextColor } from '../colorUtils';
 import ModalShell from './ModalShell';
 import { getDocumentLabel, sortDocumentsByName } from '../documentUtils';
 import { useStore } from '../store';
@@ -41,6 +42,7 @@ const EMPTY_HECHO_FORM = {
   descripcion: '',
   cobertura: 'debil' as 'no-cubierto' | 'debil' | 'cubierto' | 'muy-cubierto',
   priority: 'media' as 'baja' | 'media' | 'alta',
+  color: '',
 };
 
 const EMPTY_DOCUMENTO_FORM = {
@@ -71,7 +73,7 @@ function parseQuestionsCsv(text: string): Array<Omit<PreguntaBase, 'id'>> {
   if (lines.length < 2) return [];
 
   const splitCsvLine = (line: string) => line.split(',').map((cell) => cell.trim().replace(/^"|"$/g, ''));
-  const headers = splitCsvLine(lines[0]).map((header) => header.toLowerCase());
+  const headers = splitCsvLine(lines[0]).map((header) => header.toLowerCase().replace(/\*/g, '').trim());
   const textoIndex = headers.indexOf('texto');
   const testigoIndex = headers.indexOf('testigo');
   const hechoIndex = headers.indexOf('hecho');
@@ -121,7 +123,38 @@ function DocumentSelect(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
 }
 
 function buildRandomWitnessColor() {
-  return `hsl(${Math.floor(Math.random() * 360)} 70% 58%)`;
+  return buildRandomAccentColor();
+}
+
+function buildRandomFactColor(hechos: Hecho[], currentFactId?: string) {
+  return buildUniqueFactColor(
+    hechos.filter((hecho) => hecho.id !== currentFactId).map((hecho) => hecho.color),
+  );
+}
+
+function buildColorChipStyle(color: string) {
+  return {
+    backgroundColor: color,
+    color: getReadableTextColor(color),
+  };
+}
+
+function buildColorSelectStyle(color?: string): React.CSSProperties | undefined {
+  if (!color) return undefined;
+
+  return {
+    backgroundColor: color,
+    color: getReadableTextColor(color),
+    borderColor: color,
+  };
+}
+
+function ColorChip({ label, color }: { label: string; color: string }) {
+  return (
+    <span className="inline-flex max-w-full items-center rounded-full px-2 py-1 text-[11px] font-medium" style={buildColorChipStyle(color)}>
+      <span className="truncate">{label}</span>
+    </span>
+  );
 }
 
 function CollapsibleSection({
@@ -173,9 +206,8 @@ function TestigoCard({
           onClick={() => setIsExpanded(!isExpanded)}
           className="flex w-full items-center gap-2 text-left"
         >
-          <div className="mt-1 h-2.5 w-2.5 rounded-full" style={{ backgroundColor: testigo.color }} />
+          <ColorChip label={testigo.nombre} color={testigo.color} />
           <div className="min-w-0 flex-1">
-            <div className="truncate text-sm font-medium text-zinc-100">{testigo.nombre}</div>
             <div className="text-xs text-zinc-500">{testigo.rolProcesal} · {nodesCount} nodos</div>
           </div>
           <ChevronDown size={14} className={`text-zinc-600 transition ${isExpanded ? 'rotate-180' : ''}`} />
@@ -207,6 +239,7 @@ function TestigoCard({
               <DocumentSelect
                 value={testigo.parteQuePropone ?? 'actora'}
                 onChange={(e) => updateTestigo(testigo.id, { parteQuePropone: e.target.value as 'actora' | 'demandada' | 'tercero' })}
+                style={buildColorSelectStyle(testigo.color)}
               >
                 {PARTES_TESTIGO.map((p) => (
                   <option key={p.value} value={p.value}>{p.label}</option>
@@ -218,6 +251,7 @@ function TestigoCard({
               <DocumentSelect
                 value={testigo.rolProcesal ?? 'proponente'}
                 onChange={(e) => updateTestigo(testigo.id, { rolProcesal: e.target.value as 'proponente' | 'contrario' })}
+                style={buildColorSelectStyle(testigo.color)}
               >
                 {ROLES.map((r) => (
                   <option key={r.value} value={r.value}>{r.label}</option>
@@ -234,6 +268,7 @@ function TestigoCard({
                 value={testigo.color}
                 onChange={(e) => updateTestigo(testigo.id, { color: e.target.value })}
                 placeholder="hsl(200 70% 58%) o #3b82f6"
+                style={buildColorSelectStyle(testigo.color)}
               />
               <button
                 type="button"
@@ -322,7 +357,7 @@ function HechoCard({
   nodesCount: number;
   onDelete: (id: string, titulo: string) => void;
 }) {
-  const { updateHecho } = useStore();
+  const { updateHecho, hechos } = useStore();
   const [isExpanded, setIsExpanded] = useState(false);
 
   return (
@@ -332,9 +367,8 @@ function HechoCard({
           onClick={() => setIsExpanded(!isExpanded)}
           className="flex w-full items-center gap-2 text-left"
         >
-          <Target size={14} className="text-blue-400" />
+          <ColorChip label={hecho.titulo} color={hecho.color} />
           <div className="min-w-0 flex-1">
-            <div className="truncate text-sm font-medium text-zinc-100">{hecho.titulo}</div>
             <div className="text-xs text-zinc-500">{hecho.cobertura} · {nodesCount} nodos</div>
           </div>
           <ChevronDown size={14} className={`text-zinc-600 transition ${isExpanded ? 'rotate-180' : ''}`} />
@@ -367,6 +401,7 @@ function HechoCard({
               <DocumentSelect
                 value={hecho.cobertura ?? 'debil'}
                 onChange={(e) => updateHecho(hecho.id, { cobertura: e.target.value as 'no-cubierto' | 'debil' | 'cubierto' | 'muy-cubierto' })}
+                style={buildColorSelectStyle(hecho.color)}
               >
                 <option value="no-cubierto">No cubierto</option>
                 <option value="debil">Debil</option>
@@ -379,12 +414,34 @@ function HechoCard({
               <DocumentSelect
                 value={hecho.priority ?? 'media'}
                 onChange={(e) => updateHecho(hecho.id, { priority: e.target.value as 'baja' | 'media' | 'alta' })}
+                style={buildColorSelectStyle(hecho.color)}
               >
                 <option value="baja">Baja</option>
                 <option value="media">Media</option>
                 <option value="alta">Alta</option>
               </DocumentSelect>
             </div>
+          </div>
+
+          <div>
+            <FieldLabel>Color del hecho</FieldLabel>
+            <div className="flex items-center gap-2">
+              <div className="h-10 w-10 rounded-2xl border border-zinc-700" style={{ backgroundColor: hecho.color }} />
+              <DocumentInput
+                value={hecho.color}
+                onChange={(e) => updateHecho(hecho.id, { color: e.target.value })}
+                placeholder="hsl(220 70% 58%) o #3b82f6"
+                style={buildColorSelectStyle(hecho.color)}
+              />
+              <button
+                type="button"
+                onClick={() => updateHecho(hecho.id, { color: buildRandomFactColor(hechos, hecho.id) })}
+                className="shrink-0 rounded-xl border border-zinc-700 px-3 py-2 text-xs text-zinc-300 transition hover:bg-zinc-800"
+              >
+                Aleatorio
+              </button>
+            </div>
+            <p className="mt-1 text-xs text-zinc-500">Si el color coincide con otro hecho, se ajusta al mas cercano disponible.</p>
           </div>
 
           <div className="text-center text-xs text-zinc-500">
@@ -702,7 +759,7 @@ function HechoModal({
   isOpen: boolean;
   onClose: () => void;
 }) {
-  const { agregarHecho } = useStore();
+  const { agregarHecho, hechos } = useStore();
   const [formData, setFormData] = useState(EMPTY_HECHO_FORM);
 
   if (!isOpen) return null;
@@ -771,6 +828,27 @@ function HechoModal({
                 <option value="alta">Alta</option>
               </DocumentSelect>
             </div>
+          </div>
+
+          <div>
+            <FieldLabel>Color del hecho</FieldLabel>
+            <div className="flex items-center gap-2">
+              <div className="h-10 w-10 rounded-2xl border border-zinc-700" style={{ backgroundColor: formData.color || '#3b82f6' }} />
+              <DocumentInput
+                value={formData.color}
+                onChange={(e) => setFormData({ ...formData, color: e.target.value })}
+                placeholder="Vacío = color aleatorio"
+                style={buildColorSelectStyle(formData.color || undefined)}
+              />
+              <button
+                type="button"
+                onClick={() => setFormData({ ...formData, color: buildRandomFactColor(hechos) })}
+                className="shrink-0 rounded-xl border border-zinc-700 px-3 py-2 text-xs text-zinc-300 transition hover:bg-zinc-800"
+              >
+                Aleatorio
+              </button>
+            </div>
+            <p className="mt-1 text-xs text-zinc-500">Cada hecho tiene un color propio y no comparte color con otro hecho.</p>
           </div>
         </div>
 
@@ -953,21 +1031,19 @@ function PreguntaCard({
   pregunta,
   testigos,
   hechos,
-  witnessLabel,
-  factLabel,
   onDelete,
   onAddToCanvas,
 }: {
   pregunta: PreguntaBase;
   testigos: Testigo[];
   hechos: Hecho[];
-  witnessLabel?: string;
-  factLabel?: string;
   onDelete: (id: string, label: string) => void;
   onAddToCanvas: (id: string) => void;
 }) {
   const { updatePregunta } = useStore();
   const [isExpanded, setIsExpanded] = useState(false);
+  const selectedWitness = testigos.find((item) => item.id === pregunta.witnessId);
+  const selectedFact = hechos.find((item) => item.id === pregunta.factId);
 
   return (
     <article className="group relative rounded-2xl border border-zinc-800 bg-zinc-950">
@@ -976,8 +1052,10 @@ function PreguntaCard({
           <MessageSquare size={14} className="mt-0.5 text-emerald-400" />
           <div className="min-w-0 flex-1">
             <div className="text-sm font-medium text-zinc-100 line-clamp-2">{pregunta.texto}</div>
-            <div className="mt-1 text-xs text-zinc-500">
-              {witnessLabel || 'Sin testigo'} · {factLabel || 'Sin hecho'}{pregunta.topicLabel ? ` · ${pregunta.topicLabel}` : ''}
+            <div className="mt-2 flex flex-wrap gap-1 text-xs">
+              {selectedWitness ? <ColorChip label={selectedWitness.nombre} color={selectedWitness.color} /> : <span className="rounded-full bg-zinc-800 px-2 py-1 text-zinc-400">Sin testigo</span>}
+              {selectedFact ? <ColorChip label={selectedFact.titulo} color={selectedFact.color} /> : <span className="rounded-full bg-zinc-800 px-2 py-1 text-zinc-400">Sin hecho</span>}
+              {pregunta.topicLabel ? <span className="rounded-full bg-zinc-800 px-2 py-1 text-zinc-300">{pregunta.topicLabel}</span> : null}
             </div>
           </div>
           <ChevronDown size={14} className={`text-zinc-600 transition ${isExpanded ? 'rotate-180' : ''}`} />
@@ -999,14 +1077,14 @@ function PreguntaCard({
           <div className="grid grid-cols-2 gap-2">
             <div>
               <FieldLabel>Testigo</FieldLabel>
-              <DocumentSelect value={pregunta.witnessId ?? ''} onChange={(e) => updatePregunta(pregunta.id, { witnessId: e.target.value || undefined })}>
+              <DocumentSelect value={pregunta.witnessId ?? ''} onChange={(e) => updatePregunta(pregunta.id, { witnessId: e.target.value || undefined })} style={buildColorSelectStyle(selectedWitness?.color)}>
                 <option value="">Sin vincular</option>
                 {testigos.map((testigo) => <option key={testigo.id} value={testigo.id}>{testigo.nombre}</option>)}
               </DocumentSelect>
             </div>
             <div>
               <FieldLabel>Hecho</FieldLabel>
-              <DocumentSelect value={pregunta.factId ?? ''} onChange={(e) => updatePregunta(pregunta.id, { factId: e.target.value || undefined })}>
+              <DocumentSelect value={pregunta.factId ?? ''} onChange={(e) => updatePregunta(pregunta.id, { factId: e.target.value || undefined })} style={buildColorSelectStyle(selectedFact?.color)}>
                 <option value="">Sin vincular</option>
                 {hechos.map((hecho) => <option key={hecho.id} value={hecho.id}>{hecho.titulo}</option>)}
               </DocumentSelect>
@@ -1052,6 +1130,8 @@ function PreguntaModal({
 }) {
   const { agregarPregunta, testigos, hechos } = useStore();
   const [formData, setFormData] = useState(EMPTY_PREGUNTA_FORM);
+  const selectedWitness = testigos.find((item) => item.id === formData.witnessId);
+  const selectedFact = hechos.find((item) => item.id === formData.factId);
 
   if (!isOpen) return null;
 
@@ -1090,14 +1170,14 @@ function PreguntaModal({
         <div className="grid grid-cols-2 gap-2">
           <div>
             <FieldLabel>Testigo</FieldLabel>
-            <DocumentSelect value={formData.witnessId} onChange={(e) => setFormData({ ...formData, witnessId: e.target.value })}>
+            <DocumentSelect value={formData.witnessId} onChange={(e) => setFormData({ ...formData, witnessId: e.target.value })} style={buildColorSelectStyle(selectedWitness?.color)}>
               <option value="">Sin vincular</option>
               {testigos.map((testigo) => <option key={testigo.id} value={testigo.id}>{testigo.nombre}</option>)}
             </DocumentSelect>
           </div>
           <div>
             <FieldLabel>Hecho</FieldLabel>
-            <DocumentSelect value={formData.factId} onChange={(e) => setFormData({ ...formData, factId: e.target.value })}>
+            <DocumentSelect value={formData.factId} onChange={(e) => setFormData({ ...formData, factId: e.target.value })} style={buildColorSelectStyle(selectedFact?.color)}>
               <option value="">Sin vincular</option>
               {hechos.map((hecho) => <option key={hecho.id} value={hecho.id}>{hecho.titulo}</option>)}
             </DocumentSelect>
@@ -1125,7 +1205,13 @@ function PreguntaModal({
   );
 }
 
-export default function SidebarPanel() {
+export default function SidebarPanel({
+  width,
+  onResizeStart,
+}: {
+  width: number;
+  onResizeStart: (event: React.PointerEvent<HTMLButtonElement>) => void;
+}) {
   const { testigos, hechos, documentos, preguntas, nodes, setDeleteConfirm, importarPreguntas, crearNodoPreguntaDesdeBanco } = useStore();
 
   const [testigosOpen, setTestigosOpen] = useState(true);
@@ -1170,7 +1256,19 @@ export default function SidebarPanel() {
   };
 
   return (
-    <aside className="flex h-full w-[300px] flex-col border-r border-zinc-800 bg-zinc-900/80 backdrop-blur">
+    <aside
+      className="relative flex h-full shrink-0 flex-col border-r border-zinc-800 bg-zinc-900/80 backdrop-blur"
+      style={{ width, minWidth: width, maxWidth: width }}
+    >
+      <button
+        type="button"
+        aria-label="Redimensionar sidebar"
+        onPointerDown={onResizeStart}
+        className="absolute inset-y-0 right-0 z-20 w-3 translate-x-1/2 cursor-col-resize bg-transparent"
+      >
+        <span className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-zinc-700 transition hover:bg-zinc-500" />
+      </button>
+
       <div className="border-b border-zinc-800 px-4 py-3">
         <div className="text-xs uppercase tracking-[0.25em] text-zinc-500">Resumen</div>
         <div className="mt-2 grid grid-cols-3 gap-2 text-center text-xs">
@@ -1260,34 +1358,38 @@ export default function SidebarPanel() {
 
         <CollapsibleSection title="Preguntas" icon={MessageSquare} count={preguntas.length} isOpen={preguntasOpen} onToggle={() => setPreguntasOpen(!preguntasOpen)}>
           <div className="px-1">
-            <div className="mb-3 grid grid-cols-2 gap-2">
+            <div className="mb-3 grid grid-cols-1 gap-2">
               <button
                 onClick={() => setPreguntaModalOpen(true)}
                 className="flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-600/20 py-2 text-sm text-emerald-400 transition hover:bg-emerald-600/30"
               >
                 <Plus size={14} /> Nueva pregunta
               </button>
-              <button
-                onClick={() => csvInputRef.current?.click()}
-                className="flex w-full items-center justify-center gap-2 rounded-2xl bg-zinc-800 py-2 text-sm text-zinc-200 transition hover:bg-zinc-700"
-              >
-                <Upload size={14} /> Importar CSV
-              </button>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => csvInputRef.current?.click()}
+                  className="flex w-full items-center justify-center gap-2 rounded-2xl bg-zinc-800 py-2 text-sm text-zinc-200 transition hover:bg-zinc-700"
+                >
+                  <Upload size={14} /> Importar CSV
+                </button>
+                <a
+                  href="/templates/preguntas-template.csv"
+                  download
+                  className="flex w-full items-center justify-center gap-2 rounded-2xl border border-zinc-700 py-2 text-sm text-zinc-200 transition hover:bg-zinc-800"
+                >
+                  <Download size={14} /> Plantilla CSV
+                </a>
+              </div>
             </div>
             <input ref={csvInputRef} type="file" accept=".csv,text/csv" onChange={(event) => void handleImportCsv(event)} className="hidden" />
             <div className="space-y-2">
               {preguntasOrdenadas.map((pregunta) => {
-                const witnessLabel = testigos.find((item) => item.id === pregunta.witnessId)?.nombre;
-                const factLabel = hechos.find((item) => item.id === pregunta.factId)?.titulo;
-
                 return (
                   <PreguntaCard
                     key={pregunta.id}
                     pregunta={pregunta}
                     testigos={testigos}
                     hechos={hechos}
-                    witnessLabel={witnessLabel}
-                    factLabel={factLabel}
                     onDelete={(id, label) => handleEliminar('pregunta', id, label)}
                     onAddToCanvas={crearNodoPreguntaDesdeBanco}
                   />
