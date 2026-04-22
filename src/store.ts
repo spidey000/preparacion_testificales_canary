@@ -5,7 +5,7 @@ import { getDocumentLabel } from './documentUtils';
 import { decorateEdge, getEdgeKindLabel, inferEdgeKind } from './edgeRules';
 import { deleteFlowById, getFlowById, getFlowSnapshot, listFlowSummariesByUpdatedAt, saveFlow, saveFlows } from './flowRepository';
 import { cloneImportedFlowsAsNew } from './importExport';
-import type { CustomEdge, CustomEdgeData, CustomNode, CustomNodeData, Documento, FlowSummary, Flujo, Hecho, NodeKind, PreguntaBase, PreguntaRespuesta, SessionMode, Testigo } from './types';
+import type { CustomEdge, CustomEdgeData, CustomNode, CustomNodeData, Documento, EdgeLabelOffset, FlowSummary, Flujo, Hecho, NodeKind, PreguntaBase, PreguntaRespuesta, SessionMode, Testigo } from './types';
 
 type SaveState = 'idle' | 'saving' | 'saved';
 
@@ -72,6 +72,15 @@ function sanitizeAnswers(answers: PreguntaRespuesta[] | undefined): PreguntaResp
     .filter((answer) => answer.texto.trim().length > 0);
 }
 
+function normalizeLabelOffset(value: unknown): EdgeLabelOffset | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+
+  const candidate = value as { x?: unknown; y?: unknown };
+  return typeof candidate.x === 'number' && typeof candidate.y === 'number'
+    ? { x: candidate.x, y: candidate.y }
+    : undefined;
+}
+
 function syncQuestionNodeEdges(nodeId: string, nextAnswers: PreguntaRespuesta[], edges: CustomEdge[]) {
   const answersById = new Map(nextAnswers.map((answer) => [answer.id, answer]));
 
@@ -92,6 +101,7 @@ function syncQuestionNodeEdges(nodeId: string, nextAnswers: PreguntaRespuesta[],
         sourceAnswerId: answer.id,
         sourceAnswerText: answer.texto,
         customLabel: edge.data.customLabel,
+        labelOffset: normalizeLabelOffset(edge.data.labelOffset),
       },
     }));
     return acc;
@@ -211,6 +221,7 @@ function normalizeEdges(edges: CustomEdge[] | undefined, nodes: CustomNode[]): C
         tipo,
         customLabel,
         priority: edge.data?.priority,
+        labelOffset: normalizeLabelOffset(edge.data?.labelOffset),
       },
     });
   });

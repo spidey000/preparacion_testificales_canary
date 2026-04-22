@@ -708,6 +708,9 @@ function normalizeFlow(flujoValue: unknown, index: number, adjustments: ImportAd
           priority: ensureOptionalEnum(data.priority, PRIORITIES, DEFAULT_PRIORITY, adjustments, 'edge.data.priority', `${edgePath}.data.priority`),
           sourceAnswerId: ensureOptionalString(data.sourceAnswerId, adjustments, 'edge.data.sourceAnswerId', `${edgePath}.data.sourceAnswerId`),
           sourceAnswerText: ensureOptionalString(data.sourceAnswerText, adjustments, 'edge.data.sourceAnswerText', `${edgePath}.data.sourceAnswerText`),
+          labelOffset: isRecord(data.labelOffset) && isNumber(data.labelOffset.x) && isNumber(data.labelOffset.y)
+            ? { x: data.labelOffset.x, y: data.labelOffset.y }
+            : undefined,
         },
       });
     });
@@ -1029,7 +1032,7 @@ export function getReferenceOptionalFields() {
     testigo: ['cargo', 'puntosFuertes', 'puntosDebiles', 'contradiccionesConocidas', 'notasTacticas'],
     hecho: ['descripcion'],
     documento: ['nombre', 'descripcion', 'parte', 'tipo', 'fecha', 'referencia', 'notas'],
-    edge: ['sourceHandle', 'targetHandle', 'data.customLabel', 'data.priority'],
+    edge: ['sourceHandle', 'targetHandle', 'data.customLabel', 'data.priority', 'data.labelOffset'],
     nodeData: [
       'witnessId',
       'factId',

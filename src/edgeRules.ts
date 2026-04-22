@@ -102,6 +102,9 @@ export function decorateEdge(edge: CustomEdge): CustomEdge {
       priority: (edge.data?.priority as Priority | undefined) ?? 'media',
       sourceAnswerId: typeof edge.data?.sourceAnswerId === 'string' ? edge.data.sourceAnswerId : undefined,
       sourceAnswerText: sourceAnswerText || undefined,
+      labelOffset: edge.data?.labelOffset && typeof edge.data.labelOffset.x === 'number' && typeof edge.data.labelOffset.y === 'number'
+        ? edge.data.labelOffset
+        : undefined,
     },
   };
 }

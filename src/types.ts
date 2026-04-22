@@ -103,12 +103,18 @@ export type CustomNodeData = Record<string, unknown> & {
 };
 
 export type CustomNode = Node<CustomNodeData, NodeKind>;
+export type EdgeLabelOffset = {
+  x: number;
+  y: number;
+};
+
 export type CustomEdgeData = Record<string, unknown> & {
   tipo: EdgeKind;
   customLabel?: string;
   priority?: Priority;
   sourceAnswerId?: string;
   sourceAnswerText?: string;
+  labelOffset?: EdgeLabelOffset;
 };
 
 export type CustomEdge = Edge<CustomEdgeData>;
