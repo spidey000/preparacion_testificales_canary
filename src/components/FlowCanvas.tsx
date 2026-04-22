@@ -3,7 +3,7 @@ import '@xyflow/react/dist/style.css';
 import { useMemo } from 'react';
 import { getDocumentLabel } from '../documentUtils';
 import { useStore } from '../store';
-import type { CustomEdge, CustomNode, Documento, Testigo } from '../types';
+import type { CustomEdge, CustomNode, Documento, Hecho, PreguntaRespuesta, Testigo } from '../types';
 
 function toneForWitness(testigos: Testigo[], witnessId?: string) {
   return testigos.find((item) => item.id === witnessId)?.color ?? '#22c55e';
@@ -25,18 +25,38 @@ function NodeShell({ title, subtitle, accent, children }: { title: string; subti
   );
 }
 
-const createNodeTypes = (testigos: Testigo[], documentos: Documento[]): NodeTypes => ({
+const createNodeTypes = (testigos: Testigo[], hechos: Hecho[], documentos: Documento[]): NodeTypes => ({
   pregunta: ({ data }) => {
     const accent = toneForWitness(testigos, data.witnessId);
+    const witnessLabel = testigos.find((item) => item.id === data.witnessId)?.nombre;
+    const factLabel = hechos.find((item) => item.id === data.factId)?.titulo;
+    const answers = (data.answers ?? []) as PreguntaRespuesta[];
+
     return (
-      <NodeShell title={data.label || data.texto || 'Pregunta'} subtitle="Pregunta" accent={accent}>
+      <div className="relative w-[240px] rounded-[28px] border px-4 py-4 text-zinc-100 shadow-2xl backdrop-blur" style={{ borderColor: accent, background: `linear-gradient(180deg, ${accent}18, rgba(24,24,27,0.96))` }}>
+        <Handle type="target" position={Position.Left} className="!h-3 !w-3 !border-0 !bg-white" />
+        <div className="mb-2 text-[10px] uppercase tracking-[0.28em] text-zinc-300">Pregunta</div>
+        <div className="text-sm font-semibold leading-5 text-zinc-50 whitespace-pre-wrap break-words">{data.texto || data.label || 'Pregunta'}</div>
+        <div className="mt-3 space-y-1 text-[11px] text-zinc-300">
+          <div className="rounded-xl bg-black/20 px-2 py-1">Testigo: {witnessLabel || 'Sin asignar'}</div>
+          <div className="rounded-xl bg-black/20 px-2 py-1">Hecho: {factLabel || 'Sin asignar'}</div>
+          {data.topicLabel ? <div className="rounded-xl bg-black/20 px-2 py-1">Tema: {data.topicLabel}</div> : null}
+        </div>
         <div className="mt-3 flex flex-wrap gap-2">
           {data.questionStyle ? <Badge>{data.questionStyle}</Badge> : null}
           {data.priority ? <Badge>{data.priority}</Badge> : null}
-          {data.riskLevel ? <Badge>riesgo {data.riskLevel}</Badge> : null}
         </div>
-        {data.texto ? <p className="mt-3 text-sm text-zinc-200">{data.texto}</p> : null}
-      </NodeShell>
+        {answers.map((answer: PreguntaRespuesta, index: number) => (
+          <Handle
+            key={answer.id}
+            id={`answer:${answer.id}`}
+            type="source"
+            position={Position.Right}
+            style={{ top: `${Math.round(((index + 1) / (answers.length + 1)) * 100)}%` }}
+            className="!h-3 !w-3 !border-0 !bg-yellow-300"
+          />
+        ))}
+      </div>
     );
   },
   riesgo: ({ data }) => (
@@ -84,8 +104,8 @@ const createNodeTypes = (testigos: Testigo[], documentos: Documento[]): NodeType
 });
 
 export default function FlowCanvas() {
-  const { nodes, edges, applyNodesChanges, applyEdgesChanges, onConnect, setSelectedNode, setSelectedEdge, testigos, documentos, setViewportCenter } = useStore();
-  const nodeTypes = useMemo(() => createNodeTypes(testigos, documentos), [testigos, documentos]);
+  const { nodes, edges, applyNodesChanges, applyEdgesChanges, onConnect, setSelectedNode, setSelectedEdge, testigos, hechos, documentos, setViewportCenter } = useStore();
+  const nodeTypes = useMemo(() => createNodeTypes(testigos, hechos, documentos), [testigos, hechos, documentos]);
 
   const handleMoveEnd = useMemo(() => {
     return (_: unknown, viewport: Viewport) => {

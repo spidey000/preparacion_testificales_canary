@@ -1,5 +1,6 @@
 import { X } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import ModalShell from './ModalShell';
 import { getDocumentLabel, sortDocumentsByName } from '../documentUtils';
 import { useStore } from '../store';
 import type { Cobertura, Priority, QuestionStyle, RiskLevel } from '../types';
@@ -27,6 +28,10 @@ function Select(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
   return <select {...props} className={`w-full rounded-2xl border border-zinc-700 bg-zinc-950 px-4 py-3 text-zinc-100 outline-none transition focus:border-zinc-500 ${props.className ?? ''}`} />;
 }
 
+function sanitizeAnswers(answers: Array<{ id: string; texto: string }> | undefined) {
+  return (answers ?? []).filter((answer) => answer.texto.trim().length > 0);
+}
+
 export default function NodeModal() {
   const { selectedNodeId, nodes, updateNode, eliminarNodo, setSelectedNode, testigos, hechos, documentos, setDeleteConfirm } = useStore();
   const node = nodes.find((item) => item.id === selectedNodeId);
@@ -40,8 +45,7 @@ export default function NodeModal() {
   if (!node || !formData) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4">
-      <div className="flex max-h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-[2rem] border border-zinc-800 bg-zinc-900 shadow-2xl">
+    <ModalShell isOpen onClose={() => setSelectedNode(null)} zIndexClassName="z-[100]" panelClassName="max-w-3xl border-zinc-800">
         <div className="flex items-center justify-between border-b border-zinc-800 px-6 py-5">
           <div>
             <div className="text-xs uppercase tracking-[0.25em] text-zinc-500">Editor de nodo</div>
@@ -89,6 +93,10 @@ export default function NodeModal() {
                 <Input value={formData.finalidad ?? ''} onChange={(e) => setFormData({ ...formData, finalidad: e.target.value })} />
               </div>
               <div>
+                <FieldLabel>Tema</FieldLabel>
+                <Input value={formData.topicLabel ?? ''} onChange={(e) => setFormData({ ...formData, topicLabel: e.target.value })} />
+              </div>
+              <div>
                 <FieldLabel>Repregunta sugerida</FieldLabel>
                 <Input value={formData.followUpStrategy ?? ''} onChange={(e) => setFormData({ ...formData, followUpStrategy: e.target.value })} />
               </div>
@@ -125,6 +133,43 @@ export default function NodeModal() {
               <div>
                 <FieldLabel>Respuesta peligrosa</FieldLabel>
                 <Textarea rows={3} value={formData.dangerousAnswer ?? ''} onChange={(e) => setFormData({ ...formData, dangerousAnswer: e.target.value })} />
+              </div>
+              <div className="md:col-span-2">
+                <FieldLabel>Respuestas y salidas</FieldLabel>
+                <div className="space-y-2 rounded-2xl border border-zinc-800 bg-zinc-900/50 p-3">
+                  {(formData.answers ?? []).map((answer, index) => (
+                    <div key={answer.id} className="flex items-center gap-2">
+                      <Input
+                        value={answer.texto}
+                        onChange={(e) => setFormData({
+                          ...formData,
+                          answers: (formData.answers ?? []).map((item) => (item.id === answer.id ? { ...item, texto: e.target.value } : item)),
+                        })}
+                        placeholder={`Respuesta ${index + 1}`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setFormData({
+                          ...formData,
+                          answers: (formData.answers ?? []).filter((item) => item.id !== answer.id),
+                        })}
+                        className="rounded-2xl border border-zinc-700 px-3 py-3 text-zinc-300 transition hover:bg-zinc-800"
+                      >
+                        Eliminar
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => setFormData({
+                      ...formData,
+                      answers: [...(formData.answers ?? []), { id: crypto.randomUUID(), texto: '' }],
+                    })}
+                    className="rounded-2xl border border-zinc-700 px-4 py-3 text-sm text-zinc-300 transition hover:bg-zinc-800"
+                  >
+                    + Anadir respuesta
+                  </button>
+                </div>
               </div>
             </>
           ) : null}
@@ -240,7 +285,10 @@ export default function NodeModal() {
           <button onClick={() => setSelectedNode(null)} className="rounded-2xl px-5 py-3 text-zinc-400 transition hover:bg-zinc-800 hover:text-zinc-100">Cancelar</button>
           <button
             onClick={() => {
-              updateNode(node.id, formData);
+              updateNode(node.id, {
+                ...formData,
+                answers: sanitizeAnswers(formData.answers as Array<{ id: string; texto: string }> | undefined),
+              });
               setSelectedNode(null);
             }}
             className="rounded-2xl bg-white px-6 py-3 font-medium text-black transition hover:bg-zinc-200"
@@ -248,7 +296,6 @@ export default function NodeModal() {
             Guardar cambios
           </button>
         </div>
-      </div>
-    </div>
+    </ModalShell>
   );
 }

@@ -1,8 +1,9 @@
 import { AlertTriangle, X } from 'lucide-react';
+import ModalShell from './ModalShell';
 import { useStore } from '../store';
 
 export default function EliminarModal() {
-  const { deleteConfirm, setDeleteConfirm, eliminarTestigo, eliminarHecho, eliminarDocumento } = useStore();
+  const { deleteConfirm, setDeleteConfirm, eliminarTestigo, eliminarHecho, eliminarDocumento, eliminarPregunta } = useStore();
 
   if (!deleteConfirm) return null;
 
@@ -13,6 +14,8 @@ export default function EliminarModal() {
       eliminarHecho(deleteConfirm.id);
     } else if (deleteConfirm.type === 'documento') {
       eliminarDocumento(deleteConfirm.id);
+    } else if (deleteConfirm.type === 'pregunta') {
+      eliminarPregunta(deleteConfirm.id);
     }
     setDeleteConfirm(null);
   };
@@ -22,8 +25,7 @@ export default function EliminarModal() {
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4">
-      <div className="flex w-full max-w-sm flex-col overflow-hidden rounded-[2rem] border border-red-900/50 bg-zinc-900 shadow-2xl">
+    <ModalShell isOpen onClose={handleCancelar} zIndexClassName="z-[100]" panelClassName="max-w-sm border-red-900/50">
         <div className="flex items-center justify-between border-b border-red-900/30 px-6 py-5">
           <div className="flex items-center gap-3">
             <div className="rounded-full bg-red-950/50 p-2">
@@ -58,6 +60,11 @@ export default function EliminarModal() {
               Los nodos documento vinculados conservaran una copia de los datos pero quedaran desvinculados del documento original. Esta accion no se puede deshacer.
             </p>
           )}
+          {deleteConfirm.type === 'pregunta' && (
+            <p className="mt-3 text-sm text-zinc-500">
+              La pregunta se eliminara del banco lateral, pero los nodos ya creados en el canvas no cambiaran. Esta accion no se puede deshacer.
+            </p>
+          )}
         </div>
 
         <div className="flex justify-end gap-3 border-t border-red-900/30 bg-zinc-900 px-6 py-5">
@@ -68,7 +75,6 @@ export default function EliminarModal() {
             Eliminar
           </button>
         </div>
-      </div>
-    </div>
+    </ModalShell>
   );
 }

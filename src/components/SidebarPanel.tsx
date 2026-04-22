@@ -1,8 +1,9 @@
-import { AlertTriangle, ChevronDown, ChevronRight, FileQuestion, FileText, Plus, Target, Trash2, X } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { AlertTriangle, ChevronDown, ChevronRight, FileQuestion, FileText, MessageSquare, Plus, Target, Trash2, Upload, X } from 'lucide-react';
+import { useMemo, useRef, useState } from 'react';
+import ModalShell from './ModalShell';
 import { getDocumentLabel, sortDocumentsByName } from '../documentUtils';
 import { useStore } from '../store';
-import type { Documento, Hecho, ParteDocumento, Testigo } from '../types';
+import type { Documento, Hecho, ParteDocumento, PreguntaBase, PreguntaRespuesta, Testigo } from '../types';
 
 const PARTES: Array<{ value: ParteDocumento; label: string }> = [
   { value: 'actora', label: 'Actora' },
@@ -22,6 +23,87 @@ const PARTES_TESTIGO: Array<{ value: 'actora' | 'demandada' | 'tercero'; label: 
   { value: 'tercero', label: 'Tercero' },
 ];
 
+const EMPTY_TESTIGO_FORM = {
+  nombre: '',
+  cargo: '',
+  rolProcesal: 'proponente' as 'proponente' | 'contrario',
+  parteQuePropone: 'actora' as 'actora' | 'demandada' | 'tercero',
+  color: '',
+  credibilidadEstimada: '',
+  puntosFuertes: '',
+  puntosDebiles: '',
+  contradiccionesConocidas: '',
+  notasTacticas: '',
+};
+
+const EMPTY_HECHO_FORM = {
+  titulo: '',
+  descripcion: '',
+  cobertura: 'debil' as 'no-cubierto' | 'debil' | 'cubierto' | 'muy-cubierto',
+  priority: 'media' as 'baja' | 'media' | 'alta',
+};
+
+const EMPTY_DOCUMENTO_FORM = {
+  nombre: '',
+  descripcion: '',
+  parte: '' as ParteDocumento | '',
+  tipo: '',
+  fecha: '',
+  referencia: '',
+  notas: '',
+};
+
+const EMPTY_PREGUNTA_FORM = {
+  texto: '',
+  witnessId: '',
+  factId: '',
+  topicLabel: '',
+  respuestas: [{ id: crypto.randomUUID(), texto: '' }] as PreguntaRespuesta[],
+  notas: '',
+};
+
+function parseQuestionsCsv(text: string): Array<Omit<PreguntaBase, 'id'>> {
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (lines.length < 2) return [];
+
+  const splitCsvLine = (line: string) => line.split(',').map((cell) => cell.trim().replace(/^"|"$/g, ''));
+  const headers = splitCsvLine(lines[0]).map((header) => header.toLowerCase());
+  const textoIndex = headers.indexOf('texto');
+  const testigoIndex = headers.indexOf('testigo');
+  const hechoIndex = headers.indexOf('hecho');
+  const temaIndex = headers.findIndex((header) => header === 'tema' || header === 'topic' || header === 'topiclabel');
+  const respuestaIndexes = headers
+    .map((header, index) => ({ header, index }))
+    .filter(({ header }) => header.startsWith('respuesta_'));
+
+  if (textoIndex === -1) {
+    throw new Error('El CSV debe incluir una columna "texto".');
+  }
+
+  return lines.slice(1).reduce<Array<Omit<PreguntaBase, 'id'>>>((acc, line) => {
+    const cells = splitCsvLine(line);
+    const texto = cells[textoIndex]?.trim() ?? '';
+    if (!texto) return acc;
+
+    acc.push({
+      texto,
+      witnessId: testigoIndex >= 0 ? cells[testigoIndex]?.trim() || undefined : undefined,
+      factId: hechoIndex >= 0 ? cells[hechoIndex]?.trim() || undefined : undefined,
+      topicLabel: temaIndex >= 0 ? cells[temaIndex]?.trim() || undefined : undefined,
+      respuestas: respuestaIndexes
+        .map(({ index }) => cells[index]?.trim() ?? '')
+        .filter(Boolean)
+        .map((respuesta) => ({ id: crypto.randomUUID(), texto: respuesta })),
+      notas: undefined,
+    });
+    return acc;
+  }, []);
+}
+
 function FieldLabel({ children }: { children: string }) {
   return <label className="mb-1 block text-[11px] uppercase tracking-wide text-zinc-500">{children}</label>;
 }
@@ -36,6 +118,10 @@ function DocumentTextarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElemen
 
 function DocumentSelect(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
   return <select {...props} className={`w-full rounded-2xl border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-zinc-600 ${props.className ?? ''}`} />;
+}
+
+function buildRandomWitnessColor() {
+  return `hsl(${Math.floor(Math.random() * 360)} 70% 58%)`;
 }
 
 function CollapsibleSection({
@@ -138,6 +224,26 @@ function TestigoCard({
                 ))}
               </DocumentSelect>
             </div>
+          </div>
+
+          <div>
+            <FieldLabel>Color automatico de sus preguntas</FieldLabel>
+            <div className="flex items-center gap-2">
+              <div className="h-10 w-10 rounded-2xl border border-zinc-700" style={{ backgroundColor: testigo.color }} />
+              <DocumentInput
+                value={testigo.color}
+                onChange={(e) => updateTestigo(testigo.id, { color: e.target.value })}
+                placeholder="hsl(200 70% 58%) o #3b82f6"
+              />
+              <button
+                type="button"
+                onClick={() => updateTestigo(testigo.id, { color: buildRandomWitnessColor() })}
+                className="shrink-0 rounded-xl border border-zinc-700 px-3 py-2 text-xs text-zinc-300 transition hover:bg-zinc-800"
+              >
+                Aleatorio
+              </button>
+            </div>
+            <p className="mt-1 text-xs text-zinc-500">Las preguntas vinculadas a este testigo usan este color en el canvas.</p>
           </div>
 
           <div>
@@ -437,40 +543,19 @@ function TestigoModal({
   onClose: () => void;
 }) {
   const { agregarTestigo } = useStore();
-  const [formData, setFormData] = useState({
-    nombre: '',
-    cargo: '',
-    rolProcesal: 'proponente' as 'proponente' | 'contrario',
-    parteQuePropone: 'actora' as 'actora' | 'demandada' | 'tercero',
-    credibilidadEstimada: '',
-    puntosFuertes: '',
-    puntosDebiles: '',
-    contradiccionesConocidas: '',
-    notasTacticas: '',
-  });
+  const [formData, setFormData] = useState(EMPTY_TESTIGO_FORM);
 
   if (!isOpen) return null;
 
   const handleSubmit = () => {
     if (!formData.nombre.trim()) return;
     agregarTestigo(formData);
-    setFormData({
-      nombre: '',
-      cargo: '',
-      rolProcesal: 'proponente',
-      parteQuePropone: 'actora',
-      credibilidadEstimada: '',
-      puntosFuertes: '',
-      puntosDebiles: '',
-      contradiccionesConocidas: '',
-      notasTacticas: '',
-    });
+    setFormData(EMPTY_TESTIGO_FORM);
     onClose();
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4">
-      <div className="flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-[2rem] border border-zinc-800 bg-zinc-900 shadow-2xl">
+    <ModalShell isOpen={isOpen} onClose={onClose} zIndexClassName="z-[100]" panelClassName="max-w-lg border-zinc-800">
         <div className="flex items-center justify-between border-b border-zinc-800 px-6 py-5">
           <div>
             <div className="text-xs uppercase tracking-[0.25em] text-zinc-500">Nuevo testigo</div>
@@ -524,6 +609,26 @@ function TestigoModal({
                 ))}
               </DocumentSelect>
             </div>
+          </div>
+
+          <div>
+            <FieldLabel>Color automatico de sus preguntas</FieldLabel>
+            <div className="flex items-center gap-2">
+              <div className="h-10 w-10 rounded-2xl border border-zinc-700" style={{ backgroundColor: formData.color || '#22c55e' }} />
+              <DocumentInput
+                value={formData.color}
+                onChange={(e) => setFormData({ ...formData, color: e.target.value })}
+                placeholder="Vacío = color aleatorio"
+              />
+              <button
+                type="button"
+                onClick={() => setFormData({ ...formData, color: buildRandomWitnessColor() })}
+                className="shrink-0 rounded-xl border border-zinc-700 px-3 py-2 text-xs text-zinc-300 transition hover:bg-zinc-800"
+              >
+                Aleatorio
+              </button>
+            </div>
+            <p className="mt-1 text-xs text-zinc-500">Este color se aplicara automaticamente a sus nodos de pregunta.</p>
           </div>
 
           <div>
@@ -586,19 +691,453 @@ function TestigoModal({
             Agregar testigo
           </button>
         </div>
-      </div>
+    </ModalShell>
+  );
+}
+
+function HechoModal({
+  isOpen,
+  onClose,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+}) {
+  const { agregarHecho } = useStore();
+  const [formData, setFormData] = useState(EMPTY_HECHO_FORM);
+
+  if (!isOpen) return null;
+
+  const handleSubmit = () => {
+    if (!formData.titulo.trim()) return;
+    agregarHecho(formData);
+    setFormData(EMPTY_HECHO_FORM);
+    onClose();
+  };
+
+  return (
+    <ModalShell isOpen={isOpen} onClose={onClose} zIndexClassName="z-[100]" panelClassName="max-w-lg border-zinc-800">
+        <div className="flex items-center justify-between border-b border-zinc-800 px-6 py-5">
+          <div>
+            <div className="text-xs uppercase tracking-[0.25em] text-zinc-500">Nuevo hecho</div>
+            <h2 className="text-xl font-semibold text-zinc-100">Agregar hecho</h2>
+          </div>
+          <button onClick={onClose} className="rounded-full p-2 text-zinc-400 transition hover:bg-zinc-800 hover:text-zinc-100">
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto p-6">
+          <div>
+            <FieldLabel>Nombre</FieldLabel>
+            <DocumentInput
+              value={formData.titulo}
+              onChange={(e) => setFormData({ ...formData, titulo: e.target.value })}
+              placeholder="Incumplimiento del plazo de entrega"
+              autoFocus
+            />
+          </div>
+
+          <div>
+            <FieldLabel>Descripcion</FieldLabel>
+            <DocumentTextarea
+              rows={4}
+              value={formData.descripcion}
+              onChange={(e) => setFormData({ ...formData, descripcion: e.target.value })}
+              placeholder="Resume el hecho concreto y por que importa probarlo"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <FieldLabel>Cobertura</FieldLabel>
+              <DocumentSelect
+                value={formData.cobertura}
+                onChange={(e) => setFormData({ ...formData, cobertura: e.target.value as 'no-cubierto' | 'debil' | 'cubierto' | 'muy-cubierto' })}
+              >
+                <option value="no-cubierto">No cubierto</option>
+                <option value="debil">Debil</option>
+                <option value="cubierto">Cubierto</option>
+                <option value="muy-cubierto">Muy cubierto</option>
+              </DocumentSelect>
+            </div>
+            <div>
+              <FieldLabel>Prioridad</FieldLabel>
+              <DocumentSelect
+                value={formData.priority}
+                onChange={(e) => setFormData({ ...formData, priority: e.target.value as 'baja' | 'media' | 'alta' })}
+              >
+                <option value="baja">Baja</option>
+                <option value="media">Media</option>
+                <option value="alta">Alta</option>
+              </DocumentSelect>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex shrink-0 justify-end gap-3 border-t border-zinc-800 bg-zinc-900 px-6 py-5">
+          <button onClick={onClose} className="rounded-2xl px-5 py-3 text-zinc-400 transition hover:bg-zinc-800 hover:text-zinc-100">Cancelar</button>
+          <button
+            onClick={handleSubmit}
+            className="rounded-2xl bg-white px-6 py-3 font-medium text-black transition hover:bg-zinc-200"
+          >
+            Agregar hecho
+          </button>
+        </div>
+    </ModalShell>
+  );
+}
+
+function DocumentoModal({
+  isOpen,
+  onClose,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+}) {
+  const { agregarDocumento } = useStore();
+  const [formData, setFormData] = useState(EMPTY_DOCUMENTO_FORM);
+
+  if (!isOpen) return null;
+
+  const handleSubmit = () => {
+    if (!formData.nombre.trim()) return;
+
+    agregarDocumento({
+      nombre: formData.nombre,
+      descripcion: formData.descripcion,
+      parte: formData.parte || undefined,
+      tipo: formData.tipo,
+      fecha: formData.fecha,
+      referencia: formData.referencia,
+      notas: formData.notas,
+    });
+
+    setFormData(EMPTY_DOCUMENTO_FORM);
+    onClose();
+  };
+
+  return (
+    <ModalShell isOpen={isOpen} onClose={onClose} zIndexClassName="z-[100]" panelClassName="max-w-2xl border-zinc-800">
+        <div className="flex items-center justify-between border-b border-zinc-800 px-6 py-5">
+          <div>
+            <div className="text-xs uppercase tracking-[0.25em] text-zinc-500">Nuevo documento</div>
+            <h2 className="text-xl font-semibold text-zinc-100">Agregar documento</h2>
+          </div>
+          <button onClick={onClose} className="rounded-full p-2 text-zinc-400 transition hover:bg-zinc-800 hover:text-zinc-100">
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto p-6 md:grid-cols-2">
+          <div className="md:col-span-2">
+            <FieldLabel>Nombre</FieldLabel>
+            <DocumentInput
+              value={formData.nombre}
+              onChange={(e) => setFormData({ ...formData, nombre: e.target.value })}
+              placeholder="Contrato marco 2024"
+              autoFocus
+            />
+          </div>
+
+          <div className="md:col-span-2">
+            <FieldLabel>Descripcion</FieldLabel>
+            <DocumentTextarea
+              rows={4}
+              value={formData.descripcion}
+              onChange={(e) => setFormData({ ...formData, descripcion: e.target.value })}
+              placeholder="Resumen del contenido util para la estrategia"
+            />
+          </div>
+
+          <div>
+            <FieldLabel>Parte</FieldLabel>
+            <DocumentSelect
+              value={formData.parte}
+              onChange={(e) => setFormData({ ...formData, parte: e.target.value as ParteDocumento | '' })}
+            >
+              <option value="">Sin indicar</option>
+              {PARTES.map((p) => (
+                <option key={p.value} value={p.value}>{p.label}</option>
+              ))}
+            </DocumentSelect>
+          </div>
+
+          <div>
+            <FieldLabel>Tipo</FieldLabel>
+            <DocumentInput
+              value={formData.tipo}
+              onChange={(e) => setFormData({ ...formData, tipo: e.target.value })}
+              placeholder="Contrato, email..."
+            />
+          </div>
+
+          <div>
+            <FieldLabel>Fecha</FieldLabel>
+            <DocumentInput
+              value={formData.fecha}
+              onChange={(e) => setFormData({ ...formData, fecha: e.target.value })}
+              placeholder="2026-04-21"
+            />
+          </div>
+
+          <div>
+            <FieldLabel>Referencia</FieldLabel>
+            <DocumentInput
+              value={formData.referencia}
+              onChange={(e) => setFormData({ ...formData, referencia: e.target.value })}
+              placeholder="Folio, anexo..."
+            />
+          </div>
+
+          <div className="md:col-span-2">
+            <FieldLabel>Notas</FieldLabel>
+            <DocumentTextarea
+              rows={4}
+              value={formData.notas}
+              onChange={(e) => setFormData({ ...formData, notas: e.target.value })}
+              placeholder="Uso tactico, observaciones..."
+            />
+          </div>
+        </div>
+
+        <div className="flex shrink-0 justify-end gap-3 border-t border-zinc-800 bg-zinc-900 px-6 py-5">
+          <button onClick={onClose} className="rounded-2xl px-5 py-3 text-zinc-400 transition hover:bg-zinc-800 hover:text-zinc-100">Cancelar</button>
+          <button
+            onClick={handleSubmit}
+            className="rounded-2xl bg-white px-6 py-3 font-medium text-black transition hover:bg-zinc-200"
+          >
+            Agregar documento
+          </button>
+        </div>
+    </ModalShell>
+  );
+}
+
+function QuestionAnswersEditor({
+  answers,
+  onChange,
+}: {
+  answers: PreguntaRespuesta[];
+  onChange: (next: PreguntaRespuesta[]) => void;
+}) {
+  return (
+    <div className="space-y-2">
+      {answers.map((answer, index) => (
+        <div key={answer.id} className="flex items-center gap-2">
+          <DocumentInput
+            value={answer.texto}
+            onChange={(e) => onChange(answers.map((item) => (item.id === answer.id ? { ...item, texto: e.target.value } : item)))}
+            placeholder={`Respuesta ${index + 1}`}
+          />
+          <button
+            type="button"
+            onClick={() => onChange(answers.length === 1 ? [{ id: crypto.randomUUID(), texto: '' }] : answers.filter((item) => item.id !== answer.id))}
+            className="rounded-xl border border-zinc-700 px-3 py-2 text-xs text-zinc-300 transition hover:bg-zinc-800"
+          >
+            <Trash2 size={14} />
+          </button>
+        </div>
+      ))}
+      <button
+        type="button"
+        onClick={() => onChange([...answers, { id: crypto.randomUUID(), texto: '' }])}
+        className="flex items-center gap-2 rounded-xl border border-zinc-700 px-3 py-2 text-xs text-zinc-300 transition hover:bg-zinc-800"
+      >
+        <Plus size={14} /> Anadir respuesta
+      </button>
     </div>
   );
 }
 
+function PreguntaCard({
+  pregunta,
+  testigos,
+  hechos,
+  witnessLabel,
+  factLabel,
+  onDelete,
+  onAddToCanvas,
+}: {
+  pregunta: PreguntaBase;
+  testigos: Testigo[];
+  hechos: Hecho[];
+  witnessLabel?: string;
+  factLabel?: string;
+  onDelete: (id: string, label: string) => void;
+  onAddToCanvas: (id: string) => void;
+}) {
+  const { updatePregunta } = useStore();
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  return (
+    <article className="group relative rounded-2xl border border-zinc-800 bg-zinc-950">
+      <div className="flex items-start gap-2 p-3">
+        <button onClick={() => setIsExpanded(!isExpanded)} className="flex w-full items-start gap-2 text-left">
+          <MessageSquare size={14} className="mt-0.5 text-emerald-400" />
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-medium text-zinc-100 line-clamp-2">{pregunta.texto}</div>
+            <div className="mt-1 text-xs text-zinc-500">
+              {witnessLabel || 'Sin testigo'} · {factLabel || 'Sin hecho'}{pregunta.topicLabel ? ` · ${pregunta.topicLabel}` : ''}
+            </div>
+          </div>
+          <ChevronDown size={14} className={`text-zinc-600 transition ${isExpanded ? 'rotate-180' : ''}`} />
+        </button>
+      </div>
+
+      {isExpanded && (
+        <div className="space-y-3 border-t border-zinc-800/50 p-3">
+          <div>
+            <FieldLabel>Texto</FieldLabel>
+            <DocumentTextarea rows={3} value={pregunta.texto} onChange={(e) => updatePregunta(pregunta.id, { texto: e.target.value })} />
+          </div>
+
+          <div>
+            <FieldLabel>Tema</FieldLabel>
+            <DocumentInput value={pregunta.topicLabel ?? ''} onChange={(e) => updatePregunta(pregunta.id, { topicLabel: e.target.value })} placeholder="Tema de contratacion" />
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <FieldLabel>Testigo</FieldLabel>
+              <DocumentSelect value={pregunta.witnessId ?? ''} onChange={(e) => updatePregunta(pregunta.id, { witnessId: e.target.value || undefined })}>
+                <option value="">Sin vincular</option>
+                {testigos.map((testigo) => <option key={testigo.id} value={testigo.id}>{testigo.nombre}</option>)}
+              </DocumentSelect>
+            </div>
+            <div>
+              <FieldLabel>Hecho</FieldLabel>
+              <DocumentSelect value={pregunta.factId ?? ''} onChange={(e) => updatePregunta(pregunta.id, { factId: e.target.value || undefined })}>
+                <option value="">Sin vincular</option>
+                {hechos.map((hecho) => <option key={hecho.id} value={hecho.id}>{hecho.titulo}</option>)}
+              </DocumentSelect>
+            </div>
+          </div>
+
+          <div>
+            <FieldLabel>Respuestas base</FieldLabel>
+            <QuestionAnswersEditor answers={pregunta.respuestas} onChange={(respuestas) => updatePregunta(pregunta.id, { respuestas })} />
+          </div>
+
+          <div>
+            <FieldLabel>Notas</FieldLabel>
+            <DocumentTextarea rows={2} value={pregunta.notas ?? ''} onChange={(e) => updatePregunta(pregunta.id, { notas: e.target.value })} />
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => onAddToCanvas(pregunta.id)}
+              className="flex items-center justify-center gap-2 rounded-xl bg-emerald-600/20 py-2 text-sm text-emerald-400 transition hover:bg-emerald-600/30"
+            >
+              <Plus size={14} /> Anadir al canvas
+            </button>
+            <button
+              onClick={() => onDelete(pregunta.id, pregunta.texto)}
+              className="flex items-center justify-center gap-2 rounded-xl border border-red-900/50 py-2 text-sm text-red-400 transition hover:bg-red-900/20"
+            >
+              <Trash2 size={14} /> Eliminar
+            </button>
+          </div>
+        </div>
+      )}
+    </article>
+  );
+}
+
+function PreguntaModal({
+  isOpen,
+  onClose,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+}) {
+  const { agregarPregunta, testigos, hechos } = useStore();
+  const [formData, setFormData] = useState(EMPTY_PREGUNTA_FORM);
+
+  if (!isOpen) return null;
+
+  const handleSubmit = () => {
+    if (!formData.texto.trim()) return;
+
+    agregarPregunta({
+      texto: formData.texto.trim(),
+      witnessId: formData.witnessId || undefined,
+      factId: formData.factId || undefined,
+      topicLabel: formData.topicLabel.trim() || undefined,
+      respuestas: formData.respuestas,
+      notas: formData.notas.trim() || undefined,
+    });
+    setFormData({ ...EMPTY_PREGUNTA_FORM, respuestas: [{ id: crypto.randomUUID(), texto: '' }] });
+    onClose();
+  };
+
+  return (
+    <ModalShell isOpen={isOpen} onClose={onClose} zIndexClassName="z-[100]" panelClassName="max-w-2xl border-zinc-800">
+      <div className="flex items-center justify-between border-b border-zinc-800 px-6 py-5">
+        <div>
+          <div className="text-xs uppercase tracking-[0.25em] text-zinc-500">Nueva pregunta</div>
+          <h2 className="text-xl font-semibold text-zinc-100">Agregar pregunta</h2>
+        </div>
+        <button onClick={onClose} className="rounded-full p-2 text-zinc-400 transition hover:bg-zinc-800 hover:text-zinc-100">
+          <X size={20} />
+        </button>
+      </div>
+
+      <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto p-6">
+        <div>
+          <FieldLabel>Texto</FieldLabel>
+          <DocumentTextarea rows={4} value={formData.texto} onChange={(e) => setFormData({ ...formData, texto: e.target.value })} autoFocus />
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <FieldLabel>Testigo</FieldLabel>
+            <DocumentSelect value={formData.witnessId} onChange={(e) => setFormData({ ...formData, witnessId: e.target.value })}>
+              <option value="">Sin vincular</option>
+              {testigos.map((testigo) => <option key={testigo.id} value={testigo.id}>{testigo.nombre}</option>)}
+            </DocumentSelect>
+          </div>
+          <div>
+            <FieldLabel>Hecho</FieldLabel>
+            <DocumentSelect value={formData.factId} onChange={(e) => setFormData({ ...formData, factId: e.target.value })}>
+              <option value="">Sin vincular</option>
+              {hechos.map((hecho) => <option key={hecho.id} value={hecho.id}>{hecho.titulo}</option>)}
+            </DocumentSelect>
+          </div>
+        </div>
+        <div>
+          <FieldLabel>Tema</FieldLabel>
+          <DocumentInput value={formData.topicLabel} onChange={(e) => setFormData({ ...formData, topicLabel: e.target.value })} placeholder="Tema opcional" />
+        </div>
+        <div>
+          <FieldLabel>Respuestas base</FieldLabel>
+          <QuestionAnswersEditor answers={formData.respuestas} onChange={(respuestas) => setFormData({ ...formData, respuestas })} />
+        </div>
+        <div>
+          <FieldLabel>Notas</FieldLabel>
+          <DocumentTextarea rows={3} value={formData.notas} onChange={(e) => setFormData({ ...formData, notas: e.target.value })} />
+        </div>
+      </div>
+
+      <div className="flex shrink-0 justify-end gap-3 border-t border-zinc-800 bg-zinc-900 px-6 py-5">
+        <button onClick={onClose} className="rounded-2xl px-5 py-3 text-zinc-400 transition hover:bg-zinc-800 hover:text-zinc-100">Cancelar</button>
+        <button onClick={handleSubmit} className="rounded-2xl bg-white px-6 py-3 font-medium text-black transition hover:bg-zinc-200">Agregar pregunta</button>
+      </div>
+    </ModalShell>
+  );
+}
+
 export default function SidebarPanel() {
-  const { testigos, hechos, documentos, nodes, agregarTestigo, agregarHecho, agregarDocumento, setDeleteConfirm } = useStore();
+  const { testigos, hechos, documentos, preguntas, nodes, setDeleteConfirm, importarPreguntas, crearNodoPreguntaDesdeBanco } = useStore();
 
   const [testigosOpen, setTestigosOpen] = useState(true);
   const [hechosOpen, setHechosOpen] = useState(true);
   const [documentosOpen, setDocumentosOpen] = useState(true);
+  const [preguntasOpen, setPreguntasOpen] = useState(true);
   const [documentoCollapsed, setDocumentoCollapsed] = useState<Record<string, boolean>>({});
   const [testigoModalOpen, setTestigoModalOpen] = useState(false);
+  const [hechoModalOpen, setHechoModalOpen] = useState(false);
+  const [documentoModalOpen, setDocumentoModalOpen] = useState(false);
+  const [preguntaModalOpen, setPreguntaModalOpen] = useState(false);
+  const csvInputRef = useRef<HTMLInputElement>(null);
 
   const stats = useMemo(() => {
     return {
@@ -609,9 +1148,25 @@ export default function SidebarPanel() {
   }, [nodes]);
 
   const documentosOrdenados = useMemo(() => sortDocumentsByName(documentos), [documentos]);
+  const preguntasOrdenadas = useMemo(() => [...preguntas].sort((a, b) => a.texto.localeCompare(b.texto, 'es')), [preguntas]);
 
   const handleEliminar = (type: string, id: string, label: string) => {
-    setDeleteConfirm({ type: type as 'testigo' | 'hecho' | 'documento', id, label });
+    setDeleteConfirm({ type: type as 'testigo' | 'hecho' | 'documento' | 'pregunta', id, label });
+  };
+
+  const handleImportCsv = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      const parsed = parseQuestionsCsv(text);
+      const result = importarPreguntas(parsed);
+      window.alert(`Importadas ${result.imported} pregunta(s). Testigos no resueltos: ${result.unresolvedWitnesses}. Hechos no resueltos: ${result.unresolvedFacts}.`);
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'No se pudo importar el CSV.');
+    }
   };
 
   return (
@@ -660,11 +1215,7 @@ export default function SidebarPanel() {
         <CollapsibleSection title="Hechos" icon={Target} count={hechos.length} isOpen={hechosOpen} onToggle={() => setHechosOpen(!hechosOpen)}>
           <div className="px-1">
             <button
-              onClick={() => {
-                const titulo = window.prompt('Hecho a probar');
-                if (!titulo) return;
-                agregarHecho({ titulo, descripcion: '', cobertura: 'debil', priority: 'media' });
-              }}
+              onClick={() => setHechoModalOpen(true)}
               className="mb-3 flex w-full items-center justify-center gap-2 rounded-2xl bg-blue-600/20 py-2 text-sm text-blue-400 transition hover:bg-blue-600/30"
             >
               <Plus size={14} /> Nuevo hecho
@@ -686,9 +1237,7 @@ export default function SidebarPanel() {
         <CollapsibleSection title="Documentos" icon={FileText} count={documentos.length} isOpen={documentosOpen} onToggle={() => setDocumentosOpen(!documentosOpen)}>
           <div className="px-1">
             <button
-              onClick={() => {
-                agregarDocumento({ nombre: `Documento ${documentos.length + 1}` });
-              }}
+              onClick={() => setDocumentoModalOpen(true)}
               className="mb-3 flex w-full items-center justify-center gap-2 rounded-2xl bg-amber-600/20 py-2 text-sm text-amber-400 transition hover:bg-amber-600/30"
             >
               <Plus size={14} /> Nuevo documento
@@ -708,9 +1257,52 @@ export default function SidebarPanel() {
             {documentos.length === 0 && <p className="text-xs text-zinc-500">No hay documentos.</p>}
           </div>
         </CollapsibleSection>
+
+        <CollapsibleSection title="Preguntas" icon={MessageSquare} count={preguntas.length} isOpen={preguntasOpen} onToggle={() => setPreguntasOpen(!preguntasOpen)}>
+          <div className="px-1">
+            <div className="mb-3 grid grid-cols-2 gap-2">
+              <button
+                onClick={() => setPreguntaModalOpen(true)}
+                className="flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-600/20 py-2 text-sm text-emerald-400 transition hover:bg-emerald-600/30"
+              >
+                <Plus size={14} /> Nueva pregunta
+              </button>
+              <button
+                onClick={() => csvInputRef.current?.click()}
+                className="flex w-full items-center justify-center gap-2 rounded-2xl bg-zinc-800 py-2 text-sm text-zinc-200 transition hover:bg-zinc-700"
+              >
+                <Upload size={14} /> Importar CSV
+              </button>
+            </div>
+            <input ref={csvInputRef} type="file" accept=".csv,text/csv" onChange={(event) => void handleImportCsv(event)} className="hidden" />
+            <div className="space-y-2">
+              {preguntasOrdenadas.map((pregunta) => {
+                const witnessLabel = testigos.find((item) => item.id === pregunta.witnessId)?.nombre;
+                const factLabel = hechos.find((item) => item.id === pregunta.factId)?.titulo;
+
+                return (
+                  <PreguntaCard
+                    key={pregunta.id}
+                    pregunta={pregunta}
+                    testigos={testigos}
+                    hechos={hechos}
+                    witnessLabel={witnessLabel}
+                    factLabel={factLabel}
+                    onDelete={(id, label) => handleEliminar('pregunta', id, label)}
+                    onAddToCanvas={crearNodoPreguntaDesdeBanco}
+                  />
+                );
+              })}
+            </div>
+            {preguntas.length === 0 && <p className="text-xs text-zinc-500">No hay preguntas.</p>}
+          </div>
+        </CollapsibleSection>
       </div>
 
       <TestigoModal isOpen={testigoModalOpen} onClose={() => setTestigoModalOpen(false)} />
+      <HechoModal isOpen={hechoModalOpen} onClose={() => setHechoModalOpen(false)} />
+      <DocumentoModal isOpen={documentoModalOpen} onClose={() => setDocumentoModalOpen(false)} />
+      <PreguntaModal isOpen={preguntaModalOpen} onClose={() => setPreguntaModalOpen(false)} />
     </aside>
   );
 }

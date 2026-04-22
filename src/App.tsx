@@ -39,6 +39,7 @@ export default function App() {
     testigos,
     hechos,
     documentos,
+    preguntas,
     loadFlujos,
     crearFlujo,
     eliminarFlujo,
@@ -73,7 +74,7 @@ export default function App() {
       void guardarFlujo();
     }, 500);
     return () => window.clearTimeout(timeout);
-  }, [flujoActualId, nodes, edges, testigos, hechos, documentos, saveState, guardarFlujo]);
+  }, [flujoActualId, nodes, edges, testigos, hechos, documentos, preguntas, saveState, guardarFlujo]);
 
   const flujoActual = useMemo(() => flujos.find((item) => item.id === flujoActualId) ?? null, [flujos, flujoActualId]);
 

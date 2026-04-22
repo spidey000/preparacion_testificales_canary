@@ -1,4 +1,4 @@
-import { db, type DocumentRecord, type EdgeRecord, type FactRecord, type FlowRecord, type NodeRecord, type WitnessRecord } from './db';
+import { db, type DocumentRecord, type EdgeRecord, type FactRecord, type FlowRecord, type NodeRecord, type QuestionRecord, type WitnessRecord } from './db';
 import type { FlowSnapshotSummary, FlowSummary, Flujo } from './types';
 
 const FLOW_SNAPSHOT_LIMIT = 20;
@@ -64,6 +64,10 @@ function toDocumentRecords(flow: Flujo, currentRecords: DocumentRecord[]): Docum
   return buildRecordMeta(flow.documentos ?? [], currentRecords, (documento, index, meta) => ({ ...documento, flowId: flow.id, order: index, ...meta }));
 }
 
+function toQuestionRecords(flow: Flujo, currentRecords: QuestionRecord[]): QuestionRecord[] {
+  return buildRecordMeta(flow.preguntas ?? [], currentRecords, (pregunta, index, meta) => ({ ...pregunta, flowId: flow.id, order: index, ...meta }));
+}
+
 function buildFlow(
   flow: FlowRecord,
   nodes: NodeRecord[],
@@ -71,6 +75,7 @@ function buildFlow(
   witnesses: WitnessRecord[],
   facts: FactRecord[],
   documents: DocumentRecord[],
+  questions: QuestionRecord[],
 ): Flujo {
   return {
     id: flow.id,
@@ -93,6 +98,9 @@ function buildFlow(
     documentos: documents
       .sort((a, b) => a.order - b.order)
       .map(({ flowId: _flowId, order: _order, ...document }) => document),
+    preguntas: questions
+      .sort((a, b) => a.order - b.order)
+      .map(({ flowId: _flowId, order: _order, ...pregunta }) => pregunta),
   };
 }
 
@@ -108,18 +116,19 @@ export async function listFlowsByUpdatedAt(): Promise<Flujo[]> {
 }
 
 export async function getFlowById(flowId: string): Promise<Flujo | undefined> {
-  const [flow, nodes, edges, witnesses, facts, documents] = await Promise.all([
+  const [flow, nodes, edges, witnesses, facts, documents, questions] = await Promise.all([
     db.flows.get(flowId),
     db.nodes.where('flowId').equals(flowId).toArray(),
     db.edges.where('flowId').equals(flowId).toArray(),
     db.witnesses.where('flowId').equals(flowId).toArray(),
     db.facts.where('flowId').equals(flowId).toArray(),
     db.documents.where('flowId').equals(flowId).toArray(),
+    db.questions.where('flowId').equals(flowId).toArray(),
   ]);
 
   if (!flow) return undefined;
 
-  return buildFlow(flow, nodes, edges, witnesses, facts, documents);
+  return buildFlow(flow, nodes, edges, witnesses, facts, documents, questions);
 }
 
 export async function listFlowSnapshotsByFlowId(flowId: string): Promise<FlowSnapshotSummary[]> {
@@ -181,13 +190,14 @@ async function writeFlowSnapshot(flow: Flujo, snapshotVersion: number) {
 
 async function replaceFlowRecords(flow: Flujo) {
   const now = new Date().toISOString();
-  const [currentFlow, currentNodes, currentEdges, currentWitnesses, currentFacts, currentDocuments] = await Promise.all([
+  const [currentFlow, currentNodes, currentEdges, currentWitnesses, currentFacts, currentDocuments, currentQuestions] = await Promise.all([
     db.flows.get(flow.id),
     db.nodes.where('flowId').equals(flow.id).toArray(),
     db.edges.where('flowId').equals(flow.id).toArray(),
     db.witnesses.where('flowId').equals(flow.id).toArray(),
     db.facts.where('flowId').equals(flow.id).toArray(),
     db.documents.where('flowId').equals(flow.id).toArray(),
+    db.questions.where('flowId').equals(flow.id).toArray(),
   ]);
 
   const version = (currentFlow?.version ?? 0) + 1;
@@ -210,23 +220,25 @@ async function replaceFlowRecords(flow: Flujo) {
   const witnessRecords = toWitnessRecords(persistedFlow, currentWitnesses);
   const factRecords = toFactRecords(persistedFlow, currentFacts);
   const documentRecords = toDocumentRecords(persistedFlow, currentDocuments);
+  const questionRecords = toQuestionRecords(persistedFlow, currentQuestions);
 
   await syncChildRecords(db.nodes, flow.id, nodeRecords);
   await syncChildRecords(db.edges, flow.id, edgeRecords);
   await syncChildRecords(db.witnesses, flow.id, witnessRecords);
   await syncChildRecords(db.facts, flow.id, factRecords);
   await syncChildRecords(db.documents, flow.id, documentRecords);
+  await syncChildRecords(db.questions, flow.id, questionRecords);
   await writeFlowSnapshot(persistedFlow, version);
 }
 
 export async function saveFlow(flow: Flujo): Promise<void> {
-  await db.transaction('rw', [db.flows, db.nodes, db.edges, db.witnesses, db.facts, db.documents, db.flowSnapshots], async () => {
+  await db.transaction('rw', [db.flows, db.nodes, db.edges, db.witnesses, db.facts, db.documents, db.questions, db.flowSnapshots], async () => {
     await replaceFlowRecords(flow);
   });
 }
 
 export async function saveFlows(flows: Flujo[]): Promise<void> {
-  await db.transaction('rw', [db.flows, db.nodes, db.edges, db.witnesses, db.facts, db.documents, db.flowSnapshots], async () => {
+  await db.transaction('rw', [db.flows, db.nodes, db.edges, db.witnesses, db.facts, db.documents, db.questions, db.flowSnapshots], async () => {
     for (const flow of flows) {
       await replaceFlowRecords(flow);
     }
@@ -234,13 +246,14 @@ export async function saveFlows(flows: Flujo[]): Promise<void> {
 }
 
 export async function deleteFlowById(flowId: string): Promise<void> {
-  await db.transaction('rw', [db.flows, db.nodes, db.edges, db.witnesses, db.facts, db.documents, db.flowSnapshots], async () => {
+  await db.transaction('rw', [db.flows, db.nodes, db.edges, db.witnesses, db.facts, db.documents, db.questions, db.flowSnapshots], async () => {
     await db.flows.delete(flowId);
     await db.nodes.where('flowId').equals(flowId).delete();
     await db.edges.where('flowId').equals(flowId).delete();
     await db.witnesses.where('flowId').equals(flowId).delete();
     await db.facts.where('flowId').equals(flowId).delete();
     await db.documents.where('flowId').equals(flowId).delete();
+    await db.questions.where('flowId').equals(flowId).delete();
     await db.flowSnapshots.where('flowId').equals(flowId).delete();
   });
 }

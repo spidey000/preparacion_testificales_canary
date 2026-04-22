@@ -1,5 +1,6 @@
 import { X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import ModalShell from './ModalShell';
 import { EDGE_KIND_LABELS, getAllowedEdgeKinds } from '../edgeRules';
 import { useStore } from '../store';
 import type { CustomEdgeData, Priority } from '../types';
@@ -31,8 +32,7 @@ export default function EdgeModal() {
   if (!edge || !formData) return null;
 
   return (
-    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/70 p-4">
-      <div className="flex max-h-[85vh] w-full max-w-xl flex-col overflow-hidden rounded-[2rem] border border-zinc-800 bg-zinc-900 shadow-2xl">
+    <ModalShell isOpen onClose={() => setSelectedEdge(null)} zIndexClassName="z-[110]" panelClassName="max-w-xl border-zinc-800">
         <div className="flex items-center justify-between border-b border-zinc-800 px-6 py-5">
           <div>
             <div className="text-xs uppercase tracking-[0.25em] text-zinc-500">Conexion</div>
@@ -46,6 +46,9 @@ export default function EdgeModal() {
         <div className="min-h-0 flex-1 space-y-6 overflow-y-auto p-6">
           <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-4 text-sm text-zinc-400">
             Opciones disponibles para una conexion {sourceNode?.type ?? 'origen'} {'->'} {targetNode?.type ?? 'destino'}.
+            {typeof edge.data?.sourceAnswerText === 'string' && edge.data.sourceAnswerText.trim()
+              ? ` Esta conexion sale de la respuesta: "${edge.data.sourceAnswerText}".`
+              : ''}
           </div>
 
           <div>
@@ -67,7 +70,7 @@ export default function EdgeModal() {
               value={typeof formData.customLabel === 'string' ? formData.customLabel : ''}
               onChange={(e) => setFormData({ ...formData, customLabel: e.target.value })}
             />
-            <p className="mt-2 text-xs text-zinc-500">Si lo dejas vacio, se usara la etiqueta del tipo de conexion.</p>
+            <p className="mt-2 text-xs text-zinc-500">Si lo dejas vacio, se usara la etiqueta automatica de la respuesta o, si no existe, la del tipo de conexion.</p>
           </div>
 
           <div>
@@ -109,7 +112,6 @@ export default function EdgeModal() {
             Guardar conexion
           </button>
         </div>
-      </div>
-    </div>
+    </ModalShell>
   );
 }

@@ -1,5 +1,5 @@
 import Dexie, { type EntityTable } from 'dexie';
-import type { CustomEdge, CustomNode, Documento, Flujo, Hecho, Testigo } from './types';
+import type { CustomEdge, CustomNode, Documento, Flujo, Hecho, PreguntaBase, Testigo } from './types';
 
 interface LegacyFlowRecord extends Flujo {}
 
@@ -46,6 +46,12 @@ export interface DocumentRecord extends Omit<Documento, 'id'>, RecordMeta {
   order: number;
 }
 
+export interface QuestionRecord extends Omit<PreguntaBase, 'id'>, RecordMeta {
+  id: string;
+  flowId: string;
+  order: number;
+}
+
 export interface FlowSnapshotRecord {
   id: string;
   flowId: string;
@@ -62,6 +68,7 @@ export const db = new (class TestificalesDB extends Dexie {
   witnesses!: EntityTable<WitnessRecord, 'id'>;
   facts!: EntityTable<FactRecord, 'id'>;
   documents!: EntityTable<DocumentRecord, 'id'>;
+  questions!: EntityTable<QuestionRecord, 'id'>;
   flowSnapshots!: EntityTable<FlowSnapshotRecord, 'id'>;
 
   constructor() {
@@ -220,6 +227,19 @@ export const db = new (class TestificalesDB extends Dexie {
         await witnessesTable.bulkPut(applyMeta((await witnessesTable.toArray()) as Array<WitnessRecord & Partial<RecordMeta>>));
         await factsTable.bulkPut(applyMeta((await factsTable.toArray()) as Array<FactRecord & Partial<RecordMeta>>));
         await documentsTable.bulkPut(applyMeta((await documentsTable.toArray()) as Array<DocumentRecord & Partial<RecordMeta>>));
+      });
+
+    this.version(4)
+      .stores({
+        flujos: 'id, titulo, createdAt, updatedAt',
+        flows: 'id, titulo, mode, createdAt, updatedAt, version, lastSnapshotAt',
+        nodes: '[flowId+id], flowId, id, type, updatedAt, [flowId+type], [flowId+updatedAt]',
+        edges: '[flowId+id], flowId, id, source, target, updatedAt, [flowId+source], [flowId+target]',
+        witnesses: '[flowId+id], flowId, id, nombre, rolProcesal, updatedAt, [flowId+nombre]',
+        facts: '[flowId+id], flowId, id, cobertura, priority, updatedAt, [flowId+priority], [flowId+cobertura]',
+        documents: '[flowId+id], flowId, id, parte, tipo, fecha, updatedAt, [flowId+tipo], [flowId+fecha]',
+        questions: '[flowId+id], flowId, id, updatedAt, [flowId+updatedAt], [flowId+witnessId], [flowId+factId]',
+        flowSnapshots: 'id, flowId, createdAt, snapshotVersion, [flowId+createdAt]',
       });
   }
 })();

@@ -54,11 +54,28 @@ export interface Documento {
   notas?: string;
 }
 
+export interface PreguntaRespuesta {
+  id: string;
+  texto: string;
+}
+
+export interface PreguntaBase {
+  id: string;
+  texto: string;
+  witnessId?: string;
+  factId?: string;
+  topicLabel?: string;
+  respuestas: PreguntaRespuesta[];
+  notas?: string;
+}
+
 export type CustomNodeData = Record<string, unknown> & {
   type: NodeKind;
   label: string;
   witnessId?: string;
   factId?: string;
+  sourceQuestionId?: string;
+  topicLabel?: string;
   notes?: string;
   texto?: string;
   finalidad?: string;
@@ -81,6 +98,7 @@ export type CustomNodeData = Record<string, unknown> & {
   askedInHearing?: boolean;
   actualAnswer?: string;
   isSecondary?: boolean;
+  answers?: PreguntaRespuesta[];
 };
 
 export type CustomNode = Node<CustomNodeData, NodeKind>;
@@ -88,6 +106,8 @@ export type CustomEdgeData = Record<string, unknown> & {
   tipo: EdgeKind;
   customLabel?: string;
   priority?: Priority;
+  sourceAnswerId?: string;
+  sourceAnswerText?: string;
 };
 
 export type CustomEdge = Edge<CustomEdgeData>;
@@ -101,6 +121,7 @@ export interface Flujo {
   testigos: Testigo[];
   hechos: Hecho[];
   documentos?: Documento[];
+  preguntas?: PreguntaBase[];
   createdAt: string;
   updatedAt: string;
 }

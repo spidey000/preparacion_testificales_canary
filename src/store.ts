@@ -4,11 +4,16 @@ import { getDocumentLabel } from './documentUtils';
 import { decorateEdge, getEdgeKindLabel, inferEdgeKind } from './edgeRules';
 import { deleteFlowById, getFlowById, getFlowSnapshot, listFlowSummariesByUpdatedAt, saveFlow, saveFlows } from './flowRepository';
 import { cloneImportedFlowsAsNew } from './importExport';
-import type { CustomEdge, CustomEdgeData, CustomNode, CustomNodeData, Documento, FlowSummary, Flujo, Hecho, NodeKind, SessionMode, Testigo } from './types';
+import type { CustomEdge, CustomEdgeData, CustomNode, CustomNodeData, Documento, FlowSummary, Flujo, Hecho, NodeKind, PreguntaBase, PreguntaRespuesta, SessionMode, Testigo } from './types';
 
 type SaveState = 'idle' | 'saving' | 'saved';
 
 const randomColor = () => `hsl(${Math.floor(Math.random() * 360)} 70% 58%)`;
+
+function normalizeWitnessColor(color: string | undefined, fallback = randomColor()) {
+  if (!color?.trim()) return fallback;
+  return color.trim();
+}
 
 const createBaseFlow = (titulo: string): Flujo => ({
   id: crypto.randomUUID(),
@@ -19,9 +24,63 @@ const createBaseFlow = (titulo: string): Flujo => ({
   testigos: [],
   hechos: [],
   documentos: [],
+  preguntas: [],
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),
 });
+
+function buildQuestionNodeLabel(texto: string) {
+  const trimmed = texto.trim();
+  if (!trimmed) return 'Nueva pregunta';
+  return trimmed.length > 72 ? `${trimmed.slice(0, 69)}...` : trimmed;
+}
+
+function getAnswerHandleId(answerId: string) {
+  return `answer:${answerId}`;
+}
+
+function parseAnswerHandleId(handleId?: string | null) {
+  if (!handleId?.startsWith('answer:')) return undefined;
+  const answerId = handleId.slice('answer:'.length).trim();
+  return answerId || undefined;
+}
+
+function sanitizeAnswers(answers: PreguntaRespuesta[] | undefined): PreguntaRespuesta[] {
+  if (!answers?.length) return [];
+
+  return answers
+    .map((answer) => ({
+      id: answer.id || crypto.randomUUID(),
+      texto: answer.texto ?? '',
+    }))
+    .filter((answer) => answer.texto.trim().length > 0);
+}
+
+function syncQuestionNodeEdges(nodeId: string, nextAnswers: PreguntaRespuesta[], edges: CustomEdge[]) {
+  const answersById = new Map(nextAnswers.map((answer) => [answer.id, answer]));
+
+  return edges.reduce<CustomEdge[]>((acc, edge) => {
+    if (edge.source !== nodeId || !edge.data?.sourceAnswerId) {
+      acc.push(edge);
+      return acc;
+    }
+
+    const answer = answersById.get(edge.data.sourceAnswerId);
+    if (!answer) return acc;
+
+    acc.push(decorateEdge({
+      ...edge,
+      sourceHandle: getAnswerHandleId(answer.id),
+      data: {
+        ...edge.data,
+        sourceAnswerId: answer.id,
+        sourceAnswerText: answer.texto,
+        customLabel: edge.data.customLabel,
+      },
+    }));
+    return acc;
+  }, []);
+}
 
 const defaultNodeData = (type: NodeKind): CustomNodeData => {
   switch (type) {
@@ -37,7 +96,9 @@ const defaultNodeData = (type: NodeKind): CustomNodeData => {
         questionStyle: 'abierta',
         riskLevel: 'medio',
         priority: 'media',
+        topicLabel: '',
         isSecondary: false,
+        answers: [],
       };
     case 'riesgo':
       return { type, label: 'Nuevo riesgo', severity: 'medio', mitigation: '' };
@@ -68,6 +129,7 @@ interface Store {
   testigos: Testigo[];
   hechos: Hecho[];
   documentos: Documento[];
+  preguntas: PreguntaBase[];
   viewportCenter: { x: number; y: number };
   selectedNodeId: string | null;
   selectedEdgeId: string | null;
@@ -99,8 +161,13 @@ interface Store {
   agregarDocumento: (payload?: Partial<Documento>) => void;
   updateDocumento: (id: string, data: Partial<Documento>) => void;
   eliminarDocumento: (id: string) => void;
-  deleteConfirm: { type: 'testigo' | 'hecho' | 'documento'; id: string; label: string } | null;
-  setDeleteConfirm: (value: { type: 'testigo' | 'hecho' | 'documento'; id: string; label: string } | null) => void;
+  agregarPregunta: (payload: Omit<PreguntaBase, 'id'>) => void;
+  updatePregunta: (id: string, data: Partial<Omit<PreguntaBase, 'id'>>) => void;
+  eliminarPregunta: (id: string) => void;
+  importarPreguntas: (preguntas: Omit<PreguntaBase, 'id'>[]) => { imported: number; unresolvedWitnesses: number; unresolvedFacts: number };
+  crearNodoPreguntaDesdeBanco: (preguntaId: string) => void;
+  deleteConfirm: { type: 'testigo' | 'hecho' | 'documento' | 'pregunta'; id: string; label: string } | null;
+  setDeleteConfirm: (value: { type: 'testigo' | 'hecho' | 'documento' | 'pregunta'; id: string; label: string } | null) => void;
   setMode: (mode: SessionMode) => Promise<void>;
   importarFlujos: (flujos: Flujo[]) => Promise<number>;
   restaurarSnapshot: (snapshotId: string) => Promise<boolean>;
@@ -141,6 +208,7 @@ export const useStore = create<Store>((set, get) => ({
   testigos: [],
   hechos: [],
   documentos: [],
+  preguntas: [],
   viewportCenter: { x: 0, y: 0 },
   selectedNodeId: null,
   selectedEdgeId: null,
@@ -158,6 +226,7 @@ export const useStore = create<Store>((set, get) => ({
       testigos: actual?.testigos ?? [],
       hechos: actual?.hechos ?? [],
       documentos: actual?.documentos ?? [],
+      preguntas: actual?.preguntas ?? [],
       selectedEdgeId: null,
       saveState: actual ? 'saved' : 'idle',
     });
@@ -175,6 +244,7 @@ export const useStore = create<Store>((set, get) => ({
       testigos: [],
       hechos: [],
       documentos: [],
+      preguntas: [],
       selectedNodeId: null,
       selectedEdgeId: null,
       saveState: 'saved',
@@ -193,6 +263,7 @@ export const useStore = create<Store>((set, get) => ({
       testigos: actual?.testigos ?? [],
       hechos: actual?.hechos ?? [],
       documentos: actual?.documentos ?? [],
+      preguntas: actual?.preguntas ?? [],
       selectedNodeId: null,
       selectedEdgeId: null,
       saveState: actual ? 'saved' : 'idle',
@@ -209,6 +280,7 @@ export const useStore = create<Store>((set, get) => ({
       testigos: flujo.testigos,
       hechos: flujo.hechos,
       documentos: flujo.documentos ?? [],
+      preguntas: flujo.preguntas ?? [],
       selectedNodeId: null,
       selectedEdgeId: null,
       saveState: 'saved',
@@ -227,7 +299,7 @@ export const useStore = create<Store>((set, get) => ({
   },
 
   guardarFlujo: async () => {
-    const { flujoActualId, nodes, edges, testigos, hechos, documentos } = get();
+    const { flujoActualId, nodes, edges, testigos, hechos, documentos, preguntas } = get();
     if (!flujoActualId) return;
     const current = await getFlowById(flujoActualId);
     if (!current) return;
@@ -239,6 +311,7 @@ export const useStore = create<Store>((set, get) => ({
       testigos,
       hechos,
       documentos,
+      preguntas,
       updatedAt: new Date().toISOString(),
     };
     await saveFlow(updated);
@@ -270,6 +343,10 @@ export const useStore = create<Store>((set, get) => ({
       const sourceNode = state.nodes.find((node) => node.id === connection.source);
       const targetNode = state.nodes.find((node) => node.id === connection.target);
       const tipo = inferEdgeKind(sourceNode?.type, targetNode?.type);
+      const sourceAnswerId = parseAnswerHandleId(connection.sourceHandle);
+      const sourceAnswer = sourceAnswerId
+        ? sourceNode?.data.answers?.find((answer) => answer.id === sourceAnswerId)
+        : undefined;
       const newEdge = decorateEdge({
         id: crypto.randomUUID(),
         source: connection.source ?? '',
@@ -278,6 +355,8 @@ export const useStore = create<Store>((set, get) => ({
         targetHandle: connection.targetHandle,
         data: {
           tipo,
+          sourceAnswerId,
+          sourceAnswerText: sourceAnswer?.texto,
         },
       });
 
@@ -292,11 +371,16 @@ export const useStore = create<Store>((set, get) => ({
 
   crearNodo: (type) => {
     set((state) => {
+      const data = defaultNodeData(type);
+      if (type === 'pregunta') {
+        data.answers = sanitizeAnswers(data.answers);
+      }
+
       const newNode: CustomNode = {
         id: crypto.randomUUID(),
         type,
         position: state.viewportCenter,
-        data: defaultNodeData(type),
+        data,
       };
 
       return {
@@ -309,10 +393,36 @@ export const useStore = create<Store>((set, get) => ({
   },
 
   updateNode: (id, data) => {
-    set((state) => ({
-      nodes: state.nodes.map((node) => (node.id === id ? { ...node, data: { ...node.data, ...data } } : node)),
-      saveState: 'idle',
-    }));
+    set((state) => {
+      const nodes = state.nodes.map((node) => {
+        if (node.id !== id) return node;
+
+        const nextData: CustomNodeData = {
+          ...node.data,
+          ...data,
+        };
+
+        if (node.type === 'pregunta') {
+          const nextText = typeof nextData.texto === 'string' ? nextData.texto : '';
+          nextData.texto = nextText;
+          nextData.label = typeof data.label === 'string' ? data.label : buildQuestionNodeLabel(nextText);
+          nextData.answers = sanitizeAnswers(nextData.answers);
+        }
+
+        return { ...node, data: nextData };
+      });
+
+      const updatedNode = nodes.find((node) => node.id === id);
+      const edges = updatedNode?.type === 'pregunta'
+        ? syncQuestionNodeEdges(updatedNode.id, updatedNode.data.answers ?? [], state.edges)
+        : state.edges;
+
+      return {
+        nodes,
+        edges,
+        saveState: 'idle',
+      };
+    });
   },
 
   eliminarNodo: (id) => {
@@ -367,8 +477,8 @@ export const useStore = create<Store>((set, get) => ({
         ...state.testigos,
         {
           id: crypto.randomUUID(),
-          color: payload.color ?? randomColor(),
           ...payload,
+          color: normalizeWitnessColor(payload.color),
         },
       ],
       saveState: 'idle',
@@ -377,7 +487,13 @@ export const useStore = create<Store>((set, get) => ({
 
   updateTestigo: (id, data) => {
     set((state) => ({
-      testigos: state.testigos.map((testigo) => (testigo.id === id ? { ...testigo, ...data } : testigo)),
+      testigos: state.testigos.map((testigo) => (testigo.id === id
+        ? {
+            ...testigo,
+            ...data,
+            color: data.color !== undefined ? normalizeWitnessColor(data.color, testigo.color) : testigo.color,
+          }
+        : testigo)),
       saveState: 'idle',
     }));
   },
@@ -389,6 +505,7 @@ export const useStore = create<Store>((set, get) => ({
         if (node.data.witnessId !== id) return node;
         return { ...node, data: { ...node.data, witnessId: undefined } };
       }),
+      preguntas: state.preguntas.map((pregunta) => (pregunta.witnessId === id ? { ...pregunta, witnessId: undefined } : pregunta)),
       saveState: 'idle',
     }));
   },
@@ -414,6 +531,7 @@ export const useStore = create<Store>((set, get) => ({
         if (node.data.factId !== id) return node;
         return { ...node, data: { ...node.data, factId: undefined } };
       }),
+      preguntas: state.preguntas.map((pregunta) => (pregunta.factId === id ? { ...pregunta, factId: undefined } : pregunta)),
       saveState: 'idle',
     }));
   },
@@ -479,6 +597,116 @@ export const useStore = create<Store>((set, get) => ({
     }));
   },
 
+  agregarPregunta: (payload) => {
+    set((state) => ({
+      preguntas: [
+        ...state.preguntas,
+        {
+          id: crypto.randomUUID(),
+          ...payload,
+          topicLabel: payload.topicLabel?.trim() || undefined,
+          respuestas: sanitizeAnswers(payload.respuestas),
+        },
+      ],
+      saveState: 'idle',
+    }));
+  },
+
+  updatePregunta: (id, data) => {
+    set((state) => ({
+      preguntas: state.preguntas.map((pregunta) => {
+        if (pregunta.id !== id) return pregunta;
+
+        return {
+          ...pregunta,
+          ...data,
+          topicLabel: data.topicLabel !== undefined ? data.topicLabel.trim() || undefined : pregunta.topicLabel,
+          respuestas: data.respuestas ? sanitizeAnswers(data.respuestas) : pregunta.respuestas,
+        };
+      }),
+      saveState: 'idle',
+    }));
+  },
+
+  eliminarPregunta: (id) => {
+    set((state) => ({
+      preguntas: state.preguntas.filter((pregunta) => pregunta.id !== id),
+      saveState: 'idle',
+    }));
+  },
+
+  importarPreguntas: (preguntasImportadas) => {
+    const state = get();
+    const witnessNames = new Map(state.testigos.map((testigo) => [testigo.nombre.trim().toLowerCase(), testigo.id]));
+    const factTitles = new Map(state.hechos.map((hecho) => [hecho.titulo.trim().toLowerCase(), hecho.id]));
+    let unresolvedWitnesses = 0;
+    let unresolvedFacts = 0;
+
+    const nuevasPreguntas = preguntasImportadas.map((pregunta) => {
+      const witnessKey = pregunta.witnessId?.trim().toLowerCase();
+      const factKey = pregunta.factId?.trim().toLowerCase();
+      const witnessId = witnessKey ? witnessNames.get(witnessKey) : undefined;
+      const factId = factKey ? factTitles.get(factKey) : undefined;
+
+      if (witnessKey && !witnessId) unresolvedWitnesses += 1;
+      if (factKey && !factId) unresolvedFacts += 1;
+
+      return {
+        id: crypto.randomUUID(),
+        texto: pregunta.texto,
+        witnessId,
+        factId,
+        topicLabel: pregunta.topicLabel?.trim() || undefined,
+        respuestas: sanitizeAnswers(pregunta.respuestas),
+        notas: pregunta.notas,
+      } satisfies PreguntaBase;
+    });
+
+    set((current) => ({
+      preguntas: [...current.preguntas, ...nuevasPreguntas],
+      saveState: 'idle',
+    }));
+
+    return {
+      imported: nuevasPreguntas.length,
+      unresolvedWitnesses,
+      unresolvedFacts,
+    };
+  },
+
+  crearNodoPreguntaDesdeBanco: (preguntaId) => {
+    set((state) => {
+      const pregunta = state.preguntas.find((item) => item.id === preguntaId);
+      if (!pregunta) return state;
+
+      const answers = sanitizeAnswers(pregunta.respuestas);
+      const texto = pregunta.texto.trim();
+      const newNode: CustomNode = {
+        id: crypto.randomUUID(),
+        type: 'pregunta',
+        position: state.viewportCenter,
+        data: {
+          ...defaultNodeData('pregunta'),
+          label: buildQuestionNodeLabel(texto),
+          texto,
+          witnessId: pregunta.witnessId,
+          factId: pregunta.factId,
+          sourceQuestionId: pregunta.id,
+          topicLabel: pregunta.topicLabel,
+          notes: pregunta.notas,
+          answers,
+        },
+      };
+
+      return {
+        nodes: [...state.nodes, newNode],
+        selectedNodeId: newNode.id,
+        selectedEdgeId: null,
+        saveState: 'idle',
+      };
+    });
+  },
+
   setMode: async (mode) => {
     const { flujoActualId } = get();
     if (!flujoActualId) return;
@@ -502,6 +730,7 @@ export const useStore = create<Store>((set, get) => ({
       testigos: flujo.testigos.length,
       hechos: flujo.hechos.length,
       documentos: flujo.documentos?.length ?? 0,
+      preguntas: flujo.preguntas?.length ?? 0,
       nodes: flujo.nodes.length,
       edges: flujo.edges.length,
     })));
@@ -515,6 +744,7 @@ export const useStore = create<Store>((set, get) => ({
       testigos: flujo.testigos.length,
       hechos: flujo.hechos.length,
       documentos: flujo.documentos?.length ?? 0,
+      preguntas: flujo.preguntas?.length ?? 0,
       nodes: flujo.nodes.length,
       edges: flujo.edges.length,
     })));
@@ -540,6 +770,7 @@ export const useStore = create<Store>((set, get) => ({
       testigos: current?.testigos ?? state.testigos,
       hechos: current?.hechos ?? state.hechos,
       documentos: current?.documentos ?? state.documentos,
+      preguntas: current?.preguntas ?? state.preguntas,
       selectedNodeId,
       selectedEdgeId,
       saveState,
@@ -579,6 +810,7 @@ export const useStore = create<Store>((set, get) => ({
       testigos: restored.testigos,
       hechos: restored.hechos,
       documentos: restored.documentos ?? [],
+      preguntas: restored.preguntas ?? [],
       selectedNodeId: null,
       selectedEdgeId: null,
       saveState: 'saved',

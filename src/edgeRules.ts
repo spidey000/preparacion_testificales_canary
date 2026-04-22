@@ -64,7 +64,9 @@ export function getEdgeKindLabel(kind: EdgeKind) {
 export function decorateEdge(edge: CustomEdge): CustomEdge {
   const tipo = edge.data?.tipo ?? 'sigue';
   const customLabel = typeof edge.data?.customLabel === 'string' ? edge.data.customLabel.trim() : '';
-  const label = customLabel.length > 0 ? customLabel : getEdgeKindLabel(tipo);
+  const sourceAnswerText = typeof edge.data?.sourceAnswerText === 'string' ? edge.data.sourceAnswerText.trim() : '';
+  const autoAnswerLabel = sourceAnswerText ? `RESPUESTA: ${sourceAnswerText}` : '';
+  const label = customLabel.length > 0 ? customLabel : autoAnswerLabel || getEdgeKindLabel(tipo);
   const visual = EDGE_KIND_STYLES[tipo];
   const style: CSSProperties = {
     stroke: visual.stroke,
@@ -78,7 +80,7 @@ export function decorateEdge(edge: CustomEdge): CustomEdge {
     label,
     animated: visual.animated ?? false,
     style,
-    labelStyle: { fill: '#d4d4d8', fontSize: 12, fontWeight: 600 },
+    labelStyle: { fill: autoAnswerLabel ? '#facc15' : '#d4d4d8', fontSize: 12, fontWeight: 600 },
     labelBgStyle: { fill: '#18181b', opacity: 0.92 },
     labelBgPadding: [8, 4],
     markerEnd: {
@@ -92,6 +94,8 @@ export function decorateEdge(edge: CustomEdge): CustomEdge {
       tipo,
       customLabel: customLabel || undefined,
       priority: (edge.data?.priority as Priority | undefined) ?? 'media',
+      sourceAnswerId: typeof edge.data?.sourceAnswerId === 'string' ? edge.data.sourceAnswerId : undefined,
+      sourceAnswerText: sourceAnswerText || undefined,
     },
   };
 }

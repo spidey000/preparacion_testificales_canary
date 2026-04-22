@@ -1,8 +1,8 @@
-import type { Flujo, Cobertura, EdgeKind, NodeKind, ParteDocumento, Priority, QuestionStyle, RiskLevel, SessionMode } from './types';
+import type { Flujo, Cobertura, EdgeKind, NodeKind, ParteDocumento, PreguntaBase, PreguntaRespuesta, Priority, QuestionStyle, RiskLevel, SessionMode } from './types';
 
 export const DB_FILE_EXTENSION = '.json';
 export const DB_APP_ID = 'testificales';
-export const DB_SCHEMA_VERSION = 2;
+export const DB_SCHEMA_VERSION = 3;
 
 const NODE_KINDS: NodeKind[] = ['pregunta', 'riesgo', 'documento', 'hecho', 'tema', 'cierre'];
 const COVERAGE_VALUES: Cobertura[] = ['no-cubierto', 'debil', 'cubierto', 'muy-cubierto'];
@@ -72,6 +72,7 @@ export interface ImportFlowDebugSummary {
   testigos: number;
   hechos: number;
   documentos: number;
+  preguntas: number;
   nodes: number;
   edges: number;
   nodeTypes: ImportNodeTypeCounts;
@@ -82,6 +83,7 @@ export interface ImportDebugSummary {
   testigos: number;
   hechos: number;
   documentos: number;
+  preguntas: number;
   nodes: number;
   edges: number;
   nodeTypes: ImportNodeTypeCounts;
@@ -155,6 +157,7 @@ export function buildImportDebugSummary(flujos: Flujo[]): ImportDebugSummary {
     testigos: 0,
     hechos: 0,
     documentos: 0,
+    preguntas: 0,
     nodes: 0,
     edges: 0,
     nodeTypes: createEmptyNodeTypeCounts(),
@@ -166,6 +169,7 @@ export function buildImportDebugSummary(flujos: Flujo[]): ImportDebugSummary {
     totals.testigos += flujo.testigos.length;
     totals.hechos += flujo.hechos.length;
     totals.documentos += flujo.documentos?.length ?? 0;
+    totals.preguntas += flujo.preguntas?.length ?? 0;
     totals.nodes += flujo.nodes.length;
     totals.edges += flujo.edges.length;
 
@@ -180,6 +184,7 @@ export function buildImportDebugSummary(flujos: Flujo[]): ImportDebugSummary {
       testigos: flujo.testigos.length,
       hechos: flujo.hechos.length,
       documentos: flujo.documentos?.length ?? 0,
+      preguntas: flujo.preguntas?.length ?? 0,
       nodes: flujo.nodes.length,
       edges: flujo.edges.length,
       nodeTypes,
@@ -201,9 +206,10 @@ function logFlowNormalizationSummary(flowPath: string, flow: Flujo, adjustments:
     testigos: flow.testigos.length,
     hechos: flow.hechos.length,
     documentos: flow.documentos?.length ?? 0,
+    preguntas: flow.preguntas?.length ?? 0,
     nodes: flow.nodes.length,
     edges: flow.edges.length,
-    preguntas: nodeTypes.pregunta,
+    nodosPregunta: nodeTypes.pregunta,
     riesgos: nodeTypes.riesgo,
     nodosDocumento: nodeTypes.documento,
     nodosHecho: nodeTypes.hecho,
@@ -362,6 +368,29 @@ function ensureArray(
   return value;
 }
 
+function normalizeQuestionAnswers(value: unknown, adjustments: ImportAdjustment[], path: string): PreguntaRespuesta[] {
+  const answersSource = ensureArray(value, [], adjustments, 'pregunta.respuestas', path);
+  const answerIds = new Set<string>();
+
+  return answersSource.reduce<PreguntaRespuesta[]>((acc, item, index) => {
+    const answerPath = `${path}[${index}]`;
+    const answer = isRecord(item) ? item : {};
+    if (!isRecord(item)) {
+      recordAdjustment(adjustments, 'pregunta.respuesta', answerPath, item, '{}', 'La respuesta no era un objeto y se descarto.');
+      return acc;
+    }
+
+    const texto = ensureRequiredString(answer.texto, '', adjustments, 'pregunta.respuesta.texto', `${answerPath}.texto`, 'Se reemplazo por texto vacio.').trim();
+    if (!texto) return acc;
+
+    acc.push({
+      id: ensureUniqueId(answer.id, answerIds, adjustments, 'pregunta.respuesta.id', `${answerPath}.id`, 'Respuesta invalida'),
+      texto,
+    });
+    return acc;
+  }, []);
+}
+
 function ensureUniqueId(
   value: unknown,
   usedIds: Set<string>,
@@ -448,6 +477,7 @@ function normalizeFlow(flujoValue: unknown, index: number, adjustments: ImportAd
   const witnessIds = new Set<string>();
   const factIds = new Set<string>();
   const documentIds = new Set<string>();
+  const questionIds = new Set<string>();
   const nodeIds = new Set<string>();
   const edgeIds = new Set<string>();
 
@@ -456,6 +486,9 @@ function normalizeFlow(flujoValue: unknown, index: number, adjustments: ImportAd
   const documentosSource = source.documentos === undefined
     ? []
     : ensureArray(source.documentos, [], adjustments, 'documentos', `${flowPath}.documentos`);
+  const preguntasSource = source.preguntas === undefined
+    ? []
+    : ensureArray(source.preguntas, [], adjustments, 'preguntas', `${flowPath}.preguntas`);
   const nodesSource = ensureArray(source.nodes, [], adjustments, 'nodes', `${flowPath}.nodes`);
   const edgesSource = ensureArray(source.edges, [], adjustments, 'edges', `${flowPath}.edges`);
 
@@ -516,6 +549,35 @@ function normalizeFlow(flujoValue: unknown, index: number, adjustments: ImportAd
     };
   });
 
+  const preguntas = preguntasSource.map((item, questionIndex) => {
+    const questionPath = `${flowPath}.preguntas[${questionIndex}]`;
+    const pregunta = isRecord(item) ? item : {};
+    if (!isRecord(item)) {
+      recordAdjustment(adjustments, 'pregunta', questionPath, item, '{}', 'La pregunta no era un objeto y se reemplazo por valores por defecto.');
+    }
+
+    const witnessId = ensureOptionalString(pregunta.witnessId, adjustments, 'pregunta.witnessId', `${questionPath}.witnessId`);
+    const factId = ensureOptionalString(pregunta.factId, adjustments, 'pregunta.factId', `${questionPath}.factId`);
+
+    return {
+      id: ensureUniqueId(pregunta.id, questionIds, adjustments, 'pregunta.id', `${questionPath}.id`, 'Pregunta invalida'),
+      texto: ensureRequiredString(pregunta.texto, `Pregunta ${questionIndex + 1}`, adjustments, 'pregunta.texto', `${questionPath}.texto`, 'Se reemplazo por un texto por defecto.'),
+      witnessId: witnessId && witnessIds.has(witnessId)
+        ? witnessId
+        : witnessId
+          ? (recordAdjustment(adjustments, 'pregunta.witnessId', `${questionPath}.witnessId`, witnessId, undefined, 'La referencia de testigo no existia y se elimino.'), undefined)
+          : undefined,
+      factId: factId && factIds.has(factId)
+        ? factId
+        : factId
+          ? (recordAdjustment(adjustments, 'pregunta.factId', `${questionPath}.factId`, factId, undefined, 'La referencia de hecho no existia y se elimino.'), undefined)
+          : undefined,
+      topicLabel: ensureOptionalString(pregunta.topicLabel, adjustments, 'pregunta.topicLabel', `${questionPath}.topicLabel`),
+      respuestas: normalizeQuestionAnswers(pregunta.respuestas, adjustments, `${questionPath}.respuestas`),
+      notas: ensureOptionalString(pregunta.notas, adjustments, 'pregunta.notas', `${questionPath}.notas`),
+    } satisfies PreguntaBase;
+  });
+
   const nodes = nodesSource.map((item, nodeIndex) => {
     const nodePath = `${flowPath}.nodes[${nodeIndex}]`;
     const node = isRecord(item) ? item : {};
@@ -563,6 +625,8 @@ function normalizeFlow(flujoValue: unknown, index: number, adjustments: ImportAd
         label: ensureRequiredString(dataSource.label, NODE_LABEL_BY_KIND[type], adjustments, 'node.data.label', `${nodePath}.data.label`, 'Se reemplazo por una etiqueta por defecto.'),
         witnessId: safeWitnessId,
         factId: safeFactId,
+        sourceQuestionId: ensureOptionalString(dataSource.sourceQuestionId, adjustments, 'node.data.sourceQuestionId', `${nodePath}.data.sourceQuestionId`),
+        topicLabel: ensureOptionalString(dataSource.topicLabel, adjustments, 'node.data.topicLabel', `${nodePath}.data.topicLabel`),
         documentId: safeDocumentId,
         notes: ensureOptionalString(dataSource.notes, adjustments, 'node.data.notes', `${nodePath}.data.notes`),
         texto: ensureOptionalString(dataSource.texto, adjustments, 'node.data.texto', `${nodePath}.data.texto`),
@@ -584,6 +648,7 @@ function normalizeFlow(flujoValue: unknown, index: number, adjustments: ImportAd
         coberturaNode: ensureOptionalEnum(dataSource.coberturaNode, COVERAGE_VALUES, DEFAULT_COVERAGE, adjustments, 'node.data.coberturaNode', `${nodePath}.data.coberturaNode`),
         askedInHearing: ensureOptionalBoolean(dataSource.askedInHearing, adjustments, 'node.data.askedInHearing', `${nodePath}.data.askedInHearing`),
         actualAnswer: ensureOptionalString(dataSource.actualAnswer, adjustments, 'node.data.actualAnswer', `${nodePath}.data.actualAnswer`),
+        answers: normalizeQuestionAnswers(dataSource.answers, adjustments, `${nodePath}.data.answers`),
         isSecondary: type === 'pregunta'
           ? ensureOptionalBoolean(dataSource.isSecondary, adjustments, 'node.data.isSecondary', `${nodePath}.data.isSecondary`, false)
           : ensureOptionalBoolean(dataSource.isSecondary, adjustments, 'node.data.isSecondary', `${nodePath}.data.isSecondary`),
@@ -630,6 +695,8 @@ function normalizeFlow(flujoValue: unknown, index: number, adjustments: ImportAd
           tipo: ensureEnum(data.tipo, EDGE_KINDS, 'sigue', adjustments, 'edge.data.tipo', `${edgePath}.data.tipo`),
           customLabel: ensureOptionalString(data.customLabel, adjustments, 'edge.data.customLabel', `${edgePath}.data.customLabel`),
           priority: ensureOptionalEnum(data.priority, PRIORITIES, DEFAULT_PRIORITY, adjustments, 'edge.data.priority', `${edgePath}.data.priority`),
+          sourceAnswerId: ensureOptionalString(data.sourceAnswerId, adjustments, 'edge.data.sourceAnswerId', `${edgePath}.data.sourceAnswerId`),
+          sourceAnswerText: ensureOptionalString(data.sourceAnswerText, adjustments, 'edge.data.sourceAnswerText', `${edgePath}.data.sourceAnswerText`),
         },
       });
     });
@@ -643,6 +710,7 @@ function normalizeFlow(flujoValue: unknown, index: number, adjustments: ImportAd
     testigos,
     hechos,
     documentos,
+    preguntas,
     createdAt: ensureRequiredString(source.createdAt, now, adjustments, 'flujo.createdAt', `${flowPath}.createdAt`, 'Se reemplazo por la fecha actual.'),
     updatedAt: ensureRequiredString(source.updatedAt, now, adjustments, 'flujo.updatedAt', `${flowPath}.updatedAt`, 'Se reemplazo por la fecha actual.'),
   };
@@ -693,7 +761,7 @@ export function parseImportedDbFile(text: string): ParseImportedDbResult {
     }]);
 
     assert(parsed.app === DB_APP_ID, 'El archivo JSON no pertenece a Testificales.');
-    assert(parsed.schemaVersion === DB_SCHEMA_VERSION, 'La version del archivo JSON no es compatible.');
+    assert(parsed.schemaVersion === 2 || parsed.schemaVersion === DB_SCHEMA_VERSION, 'La version del archivo JSON no es compatible.');
     assert(Array.isArray(parsed.flujos), 'El archivo JSON debe incluir un array flujos.');
 
     const adjustments: ImportAdjustment[] = [];
@@ -707,9 +775,10 @@ export function parseImportedDbFile(text: string): ParseImportedDbResult {
       testigos: summary.testigos,
       hechos: summary.hechos,
       documentos: summary.documentos,
+      preguntas: summary.preguntas,
       nodes: summary.nodes,
       edges: summary.edges,
-      preguntas: summary.nodeTypes.pregunta,
+      nodosPregunta: summary.nodeTypes.pregunta,
       riesgos: summary.nodeTypes.riesgo,
       nodosDocumento: summary.nodeTypes.documento,
       nodosHecho: summary.nodeTypes.hecho,
