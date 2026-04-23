@@ -91,6 +91,7 @@ export default function LabeledEdge({
             style={{
               transform: `translate(-50%, -50%) translate(${labelX + draftOffset.x}px, ${labelY + draftOffset.y}px)`,
               color: '#d4d4d8',
+              pointerEvents: 'all',
             }}
             onPointerDown={(event) => {
               event.preventDefault();
